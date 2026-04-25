@@ -1,0 +1,55 @@
+{
+  "name": "@quilla-fe-kit/api-client",
+  "version": "0.0.0",
+  "description": "Framework-agnostic HTTP API client for consuming @quilla-kit BEs: layered fetch wrapper, single-flight token refresh, pluggable error parser, OCC via If-Match/ETag, configurable query-string serializer. Browser + Node + edge safe.",
+  "license": "MIT",
+  "author": "Max Martinez",
+  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/api-client",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quilla-kit/quilla-fe-kit.git",
+    "directory": "packages/api-client"
+  },
+  "bugs": {
+    "url": "https://github.com/quilla-kit/quilla-fe-kit/issues"
+  },
+  "keywords": [
+    "http",
+    "client",
+    "fetch",
+    "framework-agnostic",
+    "occ",
+    "etag",
+    "if-match",
+    "token-refresh",
+    "typescript"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@quilla-fe-kit/errors": "workspace:^",
+    "@quilla-fe-kit/storage": "workspace:^"
+  }
+}

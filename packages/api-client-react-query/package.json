@@ -1,0 +1,65 @@
+{
+  "name": "@quilla-fe-kit/api-client-react-query",
+  "version": "0.0.0",
+  "description": "React Query adapter for @quilla-fe-kit/api-client: QueryClient factory, useQueryBase, mutation base hooks, query meta module augmentation, callback-shaped notification hooks.",
+  "license": "MIT",
+  "author": "Max Martinez",
+  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/api-client-react-query",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quilla-kit/quilla-fe-kit.git",
+    "directory": "packages/api-client-react-query"
+  },
+  "bugs": {
+    "url": "https://github.com/quilla-kit/quilla-fe-kit/issues"
+  },
+  "keywords": [
+    "react-query",
+    "tanstack-query",
+    "react",
+    "http",
+    "client",
+    "occ",
+    "typescript"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@quilla-fe-kit/api-client": "workspace:^",
+    "@quilla-fe-kit/errors": "workspace:^"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": ">=5.0.0",
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.3.0",
+    "jsdom": "^25.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  }
+}

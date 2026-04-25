@@ -1,0 +1,47 @@
+{
+  "name": "@quilla-fe-kit/errors",
+  "version": "0.0.0",
+  "description": "Typed error hierarchy for FE projects: QuillaFeError base + HTTP/network/business-rule subclasses with code, context, cause, JSON serialization, and a cross-realm Symbol.for brand. Zero runtime dependencies.",
+  "license": "MIT",
+  "author": "Max Martinez",
+  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/errors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quilla-kit/quilla-fe-kit.git",
+    "directory": "packages/errors"
+  },
+  "bugs": {
+    "url": "https://github.com/quilla-kit/quilla-fe-kit/issues"
+  },
+  "keywords": [
+    "errors",
+    "typed-errors",
+    "error-hierarchy",
+    "frontend",
+    "typescript"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  }
+}
