@@ -2,7 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/errors" },
-    { "path": "./packages/storage" },
+    { "path": "./packages/auth" },
     { "path": "./packages/api-client" },
     { "path": "./packages/api-client-react-query" }
   ]

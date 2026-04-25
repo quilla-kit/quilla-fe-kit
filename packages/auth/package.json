@@ -1,22 +1,22 @@
 {
-  "name": "@quilla-fe-kit/storage",
+  "name": "@quilla-fe-kit/auth",
   "version": "0.0.0",
-  "description": "Pluggable token-storage abstraction for FE auth flows: TokenStorage interface plus three default adapters — memory (SSR-safe), localStorage (browser), and cookie (Secure / SameSite). Zero runtime dependencies.",
+  "description": "Auth primitives for FE projects: pluggable TokenStorage interface plus three default adapters — memory (SSR-safe), localStorage (browser), and cookie (Secure / SameSite). Zero runtime dependencies.",
   "license": "MIT",
   "author": "Max Martinez",
-  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/storage",
+  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/auth",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/quilla-kit/quilla-fe-kit.git",
-    "directory": "packages/storage"
+    "directory": "packages/auth"
   },
   "bugs": {
     "url": "https://github.com/quilla-kit/quilla-fe-kit/issues"
   },
   "keywords": [
-    "storage",
-    "token-storage",
     "auth",
+    "authentication",
+    "token-storage",
     "localStorage",
     "cookie",
     "frontend",

@@ -38,7 +38,7 @@ import {
   HttpClientProvider,
   createQueryClient,
 } from '@quilla-fe-kit/api-client-react-query';
-import { localStorageTokenStorage } from '@quilla-fe-kit/storage';
+import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
 import { QueryClientProvider } from '@tanstack/react-query';
 
 // 1. Configure once, at the app composition root.

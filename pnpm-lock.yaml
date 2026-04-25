@@ -29,12 +29,12 @@ importers:
 
   packages/api-client:
     dependencies:
+      '@quilla-fe-kit/auth':
+        specifier: workspace:^
+        version: link:../auth
       '@quilla-fe-kit/errors':
         specifier: workspace:^
         version: link:../errors
-      '@quilla-fe-kit/storage':
-        specifier: workspace:^
-        version: link:../storage
 
   packages/api-client-react-query:
     dependencies:
@@ -64,9 +64,9 @@ importers:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
 
-  packages/errors: {}
+  packages/auth: {}
 
-  packages/storage: {}
+  packages/errors: {}
 
 packages:
 

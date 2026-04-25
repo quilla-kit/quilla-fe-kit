@@ -1,5 +1,5 @@
 import { UnauthorizedError } from '@quilla-fe-kit/errors';
-import type { TokenStorage } from '@quilla-fe-kit/storage';
+import type { TokenStorage } from '@quilla-fe-kit/auth';
 import type { HttpClient } from './http-client.interface.js';
 import type { HttpHeaders, HttpRequest, HttpResponse } from './http-types.type.js';
 import type { TokenRefresher } from './single-flight-token.refresher.js';

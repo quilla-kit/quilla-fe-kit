@@ -205,12 +205,13 @@ cost of a coupled lifecycle.
 
 - **`@quilla-fe-kit/errors`** — zero runtime dependencies. Pure JS classes,
   no platform globals, universal runtime.
-- **`@quilla-fe-kit/storage`** — zero runtime dependencies. Adapters that
-  touch browser-only APIs (`localStorageTokenStorage`, `cookieTokenStorage`)
-  guard against missing `localStorage` / `document` and throw a clear error
-  at call time.
-- **`@quilla-fe-kit/api-client`** — depends on `@quilla-fe-kit/errors` +
-  `@quilla-fe-kit/storage` (workspace). Platform-level built-ins on
+- **`@quilla-fe-kit/auth`** — zero runtime dependencies. Auth primitives
+  (today: `TokenStorage` interface + 3 adapters). Adapters that touch
+  browser-only APIs (`localStorageTokenStorage`, `cookieTokenStorage`)
+  guard against missing `localStorage` / `document` and throw a clear
+  error at call time.
+- **`@quilla-fe-kit/api-client`** — depends on `@quilla-fe-kit/auth` +
+  `@quilla-fe-kit/errors` (workspace). Platform-level built-ins on
   `globalThis` (`fetch`, `URL`) are the only externals; they are guarded
   for availability so the package stays browser + Node + edge safe.
   Owns the BE wire-contract types internally at `src/wire/` and
@@ -222,18 +223,24 @@ cost of a coupled lifecycle.
 
 Future framework adapters (`api-client-swr`, `api-client-vue-query`,
 `api-client-solid-query`) follow the same rule: `@quilla-fe-kit/api-client`
-+ `@quilla-fe-kit/errors` as workspace deps, framework as peer. Each
-adapter is its own package — bundling them was considered and rejected
-because they evolve on independent cadences and have different framework
-peer deps.
+as the only required workspace dep, framework as peer. Each adapter is
+its own package — bundling them was considered and rejected because they
+evolve on independent cadences and have different framework peer deps.
 
-**Why `errors` and `storage` are their own packages:** they're real
+**Why `errors` and `auth` are their own packages:** they're real
 toolkit building blocks, useful in FE projects independent of the HTTP
-transport. A team using axios or ky could pull just `@quilla-fe-kit/storage`
+transport. A team using axios or ky could pull just `@quilla-fe-kit/auth`
 for its `cookieTokenStorage`. A team that wants a structured error model
 without committing to the rest of the toolkit could pull just
 `@quilla-fe-kit/errors`. The toolkit's value proposition is precisely
 this pick-and-mix.
+
+**Naming note:** the `auth` package is named for its *future scope* (auth
+primitives) rather than just its current contents (token storage). The
+name reflects what the package will grow into; for now it's specifically
+token-storage adapters. `AuthSession` (the BE wire shape `{ scopeId, userId }`)
+deliberately lives in `api-client/src/wire/` next to other wire types —
+it describes a JSON contract with the BE, not a local auth primitive.
 
 **Why `wire` is *not* its own package:** wire types only have meaning
 when speaking to a `@quilla-kit` BE. There's no honest standalone "I want

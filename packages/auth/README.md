@@ -1,11 +1,34 @@
-# @quilla-fe-kit/storage
+# @quilla-fe-kit/auth
 
-Pluggable token-storage abstraction for FE auth flows: a `TokenStorage`
-interface plus three default adapters — memory, localStorage, and cookie.
+Auth primitives for FE projects.
+
+Today: a pluggable `TokenStorage` interface plus three default adapters
+(memory, localStorage, cookie) — the small, load-bearing piece every
+authenticated SPA reimplements. The package is named `auth` (not
+`token-storage`) because the surface will grow over time to cover
+auth-adjacent helpers as they earn their seat.
 
 Zero runtime dependencies. Browser-only globals are guarded; missing
 `localStorage` / `document` throw a clear error at call time, never at
 module load.
+
+## What's in scope
+
+- **Token storage** *(today)* — the `TokenStorage` interface +
+  `memoryTokenStorage`, `localStorageTokenStorage`, `cookieTokenStorage`.
+- **Future** *(not yet shipped)* — login-flow state helpers, OAuth state
+  generators, refresh-token rotation utilities. Each addition will keep
+  the same shape: small, transport-agnostic, optional.
+
+## What's *not* in scope
+
+- **Token verification, password hashing, session reading.** Those are BE
+  concerns — see `@quilla-kit/security` on the backend. The FE doesn't
+  hash passwords or verify tokens; it just carries them.
+- **Wire-shape types** like `AuthSession` (the `{ scopeId, userId }` JSON
+  the BE returns). Those live in `@quilla-fe-kit/api-client`'s wire types
+  alongside `ErrorEnvelope` and pagination shapes — they describe what
+  the BE sends, not how the FE handles auth locally.
 
 ## Why this package exists
 
@@ -28,7 +51,7 @@ the contract.
 ## Install
 
 ```sh
-pnpm add @quilla-fe-kit/storage
+pnpm add @quilla-fe-kit/auth
 ```
 
 Node 22+, ESM-only.
@@ -61,7 +84,7 @@ In-process storage. SSR-safe (no global access). Lost on page reload.
 Good defaults for tests and Node-side integrations.
 
 ```ts
-import { memoryTokenStorage } from '@quilla-fe-kit/storage';
+import { memoryTokenStorage } from '@quilla-fe-kit/auth';
 
 const storage = memoryTokenStorage();
 await storage.setTokens({ access: 'a', refresh: 'r' });
@@ -74,7 +97,7 @@ is missing (SSR, Node, edge). Customize the keys if you have a key-naming
 convention or want to namespace per-app.
 
 ```ts
-import { localStorageTokenStorage } from '@quilla-fe-kit/storage';
+import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
 
 const storage = localStorageTokenStorage({
   accessKey: 'myapp:access',     // default: 'quilla-fe-kit:access-token'
@@ -95,7 +118,7 @@ which is the right default for production but **breaks on
 `http://localhost`**. Override `secure: false` in dev configs.
 
 ```ts
-import { cookieTokenStorage } from '@quilla-fe-kit/storage';
+import { cookieTokenStorage } from '@quilla-fe-kit/auth';
 
 const storage = cookieTokenStorage({
   // sensible production defaults
@@ -139,7 +162,7 @@ file storage, or anything else, ship a class or factory that returns
 `TokenStorage`:
 
 ```ts
-import type { TokenStorage } from '@quilla-fe-kit/storage';
+import type { TokenStorage } from '@quilla-fe-kit/auth';
 
 export const myAdapter = (): TokenStorage => ({
   async getAccessToken() {

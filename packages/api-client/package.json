@@ -49,7 +49,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@quilla-fe-kit/errors": "workspace:^",
-    "@quilla-fe-kit/storage": "workspace:^"
+    "@quilla-fe-kit/auth": "workspace:^",
+    "@quilla-fe-kit/errors": "workspace:^"
   }
 }

@@ -18,12 +18,12 @@ Framework-agnostic HTTP API client for consuming `@quilla-kit` backends:
 
 Browser + Node + edge safe. Reads platform globals via `globalThis`.
 
-Runtime deps: `@quilla-fe-kit/errors`, `@quilla-fe-kit/storage`.
+Runtime deps: `@quilla-fe-kit/errors`, `@quilla-fe-kit/auth`.
 
 ## Install
 
 ```sh
-pnpm add @quilla-fe-kit/api-client @quilla-fe-kit/errors @quilla-fe-kit/storage
+pnpm add @quilla-fe-kit/api-client @quilla-fe-kit/errors @quilla-fe-kit/auth
 ```
 
 Node 22+, ESM-only.
@@ -32,7 +32,7 @@ Node 22+, ESM-only.
 
 ```ts
 import { createHttpClient } from '@quilla-fe-kit/api-client';
-import { localStorageTokenStorage } from '@quilla-fe-kit/storage';
+import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
 
 const client = createHttpClient({
   baseUrl: 'https://api.example.com',
@@ -205,7 +205,7 @@ encoding (bracket convention, comma-joined arrays, etc.).
 ## Token storage
 
 The factory accepts any `TokenStorage` implementation from
-`@quilla-fe-kit/storage` (or your own). Defaults to `memoryTokenStorage()`
+`@quilla-fe-kit/auth` (or your own). Defaults to `memoryTokenStorage()`
 when omitted, which is SSR-safe but loses tokens on reload.
 
 ## Multipart / file upload

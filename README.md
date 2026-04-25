@@ -11,7 +11,7 @@ If `quilla-kit` is the keel — the structural backbone the backend is built aro
 ## Why quilla-fe-kit
 
 - **Wire-aligned with `quilla-kit`, but not coupled to it.** The two halves agree on HTTP envelopes, error codes, OCC headers, and pagination conventions. They share *zero code* — no `@quilla-kit/*` runtime dep on the FE side. Drift is prevented by docs, not by a coupled lifecycle.
-- **Toolkit pick-and-mix.** Errors, storage, and HTTP transport are separate packages because they're useful in isolation. Use `@quilla-fe-kit/storage`'s cookie adapter with axios. Use `@quilla-fe-kit/errors` as your domain-error base, with no HTTP client at all. Take the pieces you need.
+- **Toolkit pick-and-mix.** Errors, auth, and HTTP transport are separate packages because they're useful in isolation. Use `@quilla-fe-kit/auth`'s cookie adapter with axios. Use `@quilla-fe-kit/errors` as your domain-error base, with no HTTP client at all. Take the pieces you need.
 - **No framework lock-in.** The HTTP client is framework-agnostic. The React Query adapter is a separate package; SWR, Vue Query, and Solid Query adapters follow the same pattern when they ship. Frameworks are peer dependencies, never bundled.
 - **Browser, Node, and edge-safe.** Reads `globalThis.fetch` / `globalThis.crypto`. No module-load env reads. No singletons. Multiple clients per app supported.
 - **Extracted from real production code.** Every piece earned its seat by recurring across production frontends — single-flight refresh, OCC-via-`If-Match`, debounced search, and explicit-over-magic cache resolution for mutations.
@@ -32,7 +32,7 @@ import {
   useQueryBase,
   usePutMutationBase,
 } from '@quilla-fe-kit/api-client-react-query';
-import { localStorageTokenStorage } from '@quilla-fe-kit/storage';
+import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
 import { QueryClientProvider } from '@tanstack/react-query';
 
 const httpClient = createHttpClient({
@@ -87,7 +87,7 @@ Four packages, organized as toolkit building blocks. Pick what you need.
 
 **Foundation — independent of HTTP**
 - [`@quilla-fe-kit/errors`](packages/errors) — `QuillaFeError` base + `QuillaFeHttpError` subclass + 9 concrete classes (`BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`, `ValidationError`, `BusinessRuleError`, `InternalServerError`, `NetworkError`). `Symbol.for`-branded `is()` for cross-realm safety, JSON serialization, native `cause` chaining.
-- [`@quilla-fe-kit/storage`](packages/storage) — `TokenStorage` interface plus three default adapters: `memoryTokenStorage()`, `localStorageTokenStorage()`, `cookieTokenStorage()` (with `Secure` / `SameSite` defaults). Browser-only globals are guarded.
+- [`@quilla-fe-kit/auth`](packages/auth) — `TokenStorage` interface plus three default adapters: `memoryTokenStorage()`, `localStorageTokenStorage()`, `cookieTokenStorage()` (with `Secure` / `SameSite` defaults). Browser-only globals are guarded.
 
 **HTTP client**
 - [`@quilla-fe-kit/api-client`](packages/api-client) — framework-agnostic, layered. `FetchHttpClient` + `AuthenticatedHttpClient` + `createHttpClient` factory. Single-flight token refresh, pluggable `HttpErrorParser`, configurable `QueryStringSerializer`, OCC helpers. Owns the BE wire-contract types internally.
@@ -114,14 +114,14 @@ All packages publish under `@quilla-fe-kit/*` on npm. ESM-only. Node 22+.
 
 ```sh
 # HTTP client + auth + errors (the common starting point)
-pnpm add @quilla-fe-kit/api-client @quilla-fe-kit/errors @quilla-fe-kit/storage
+pnpm add @quilla-fe-kit/api-client @quilla-fe-kit/errors @quilla-fe-kit/auth
 
 # React Query adapter
 pnpm add @quilla-fe-kit/api-client-react-query @tanstack/react-query react
 
 # Or just the building blocks you need
 pnpm add @quilla-fe-kit/errors           # error hierarchy only
-pnpm add @quilla-fe-kit/storage          # token-storage adapters only
+pnpm add @quilla-fe-kit/auth             # token-storage adapters only
 ```
 
 Every package has its own README with full API, design notes, and examples — start there once you've picked which pieces you need.

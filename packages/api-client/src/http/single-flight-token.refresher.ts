@@ -1,5 +1,5 @@
 import { UnauthorizedError } from '@quilla-fe-kit/errors';
-import type { TokenPair, TokenStorage } from '@quilla-fe-kit/storage';
+import type { TokenPair, TokenStorage } from '@quilla-fe-kit/auth';
 
 export type RefreshEndpoint = (refreshToken: string) => Promise<TokenPair>;
 

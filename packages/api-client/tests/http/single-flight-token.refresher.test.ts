@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnauthorizedError } from '@quilla-fe-kit/errors';
 import { SingleFlightTokenRefresher } from '../../src/http/single-flight-token.refresher.js';
-import { memoryTokenStorage } from '@quilla-fe-kit/storage';
+import { memoryTokenStorage } from '@quilla-fe-kit/auth';
 
 describe('SingleFlightTokenRefresher', () => {
   it('throws UnauthorizedError and clears storage when no refresh token is present', async () => {
