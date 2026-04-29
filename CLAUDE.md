@@ -66,7 +66,7 @@ Files follow the shape **`{subject}.{type}.ts`** where:
 
 - **`{type}`** is the single-word role suffix — always simple, never compound.
   Current vocabulary: `client`, `factory`, `parser`, `serializer`, `refresher`,
-  `storage`, `provider`, `hook`, `error`, `interface`, `type`.
+  `storage`, `provider`, `guard`, `hook`, `error`, `interface`, `type`.
 - Use **`.interface.ts`** when the file's main export is a TypeScript
   `interface` (contract to be implemented by a class) and no more specific
   role fits (e.g. prefer `.client.ts` or `.storage.ts` if accurate).

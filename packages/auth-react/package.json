@@ -1,0 +1,55 @@
+{
+  "name": "@quilla-fe-kit/auth-react",
+  "version": "0.0.0",
+  "description": "React adapter for @quilla-fe-kit/auth: AuthProvider with pluggable signIn/signOut, JWT-claim → Principal decoder, RequireAuth and ScopeGuard route/render guards, useAuth + useHasScope hooks. Zero external runtime deps; React as peer.",
+  "license": "MIT",
+  "author": "Max Martinez",
+  "homepage": "https://github.com/quilla-kit/quilla-fe-kit/tree/main/packages/auth-react",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quilla-kit/quilla-fe-kit.git",
+    "directory": "packages/auth-react"
+  },
+  "bugs": {
+    "url": "https://github.com/quilla-kit/quilla-fe-kit/issues"
+  },
+  "keywords": ["auth", "authentication", "jwt", "react", "guard", "rbac", "frontend", "typescript"],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@quilla-fe-kit/auth": "workspace:^",
+    "@quilla-fe-kit/api-client": "workspace:^"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^18.3.0",
+    "jsdom": "^25.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  }
+}
