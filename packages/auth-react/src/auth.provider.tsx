@@ -1,20 +1,30 @@
 import type { TokenPair, TokenStorage } from '@quilla-fe-kit/auth';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AuthContext, type AuthContextValue } from './auth-context.js';
-import { type ClaimsParser, defaultClaimsParser } from './jwt.parser.js';
+import { decodeJwtPayload } from './jwt.parser.js';
 import type { Principal } from './principal.type.js';
 
-export type AuthProviderProps = {
+export type ClaimsMapper<TClaims> = (claims: TClaims) => Principal | null;
+
+export type AuthProviderProps<TClaims> = {
   readonly storage: TokenStorage;
+  readonly fromClaims: ClaimsMapper<TClaims>;
   readonly children: ReactNode;
-  readonly parseClaims?: ClaimsParser;
 };
 
-export const AuthProvider = ({
+const tokenToPrincipal = <TClaims,>(
+  token: string,
+  fromClaims: ClaimsMapper<TClaims>,
+): Principal | null => {
+  const claims = decodeJwtPayload<TClaims>(token);
+  return claims ? fromClaims(claims) : null;
+};
+
+export const AuthProvider = <TClaims,>({
   storage,
+  fromClaims,
   children,
-  parseClaims = defaultClaimsParser,
-}: AuthProviderProps) => {
+}: AuthProviderProps<TClaims>) => {
   const [principal, setPrincipal] = useState<Principal | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,7 +37,7 @@ export const AuthProvider = ({
         setIsLoading(false);
         return;
       }
-      const next = parseClaims(token);
+      const next = tokenToPrincipal(token, fromClaims);
       if (!next) {
         await storage.clear();
         if (cancelled) return;
@@ -40,18 +50,18 @@ export const AuthProvider = ({
     return () => {
       cancelled = true;
     };
-  }, [storage, parseClaims]);
+  }, [storage, fromClaims]);
 
   const signIn = useCallback(
     async (tokens: TokenPair) => {
-      const next = parseClaims(tokens.access);
+      const next = tokenToPrincipal(tokens.access, fromClaims);
       if (!next) {
-        throw new Error('AuthProvider.signIn: access token failed to parse into a Principal.');
+        throw new Error('AuthProvider.signIn: access token failed to map into a Principal.');
       }
       await storage.setTokens(tokens);
       setPrincipal(next);
     },
-    [storage, parseClaims],
+    [storage, fromClaims],
   );
 
   const signOut = useCallback(async () => {

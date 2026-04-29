@@ -4,11 +4,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AuthProvider } from '../src/auth.provider.js';
 import { RequireAuth } from '../src/require-auth.guard.js';
 import { makeJwt } from './helpers/make-jwt.js';
+import { quillaFromClaims } from './helpers/quilla-from-claims.js';
 
 const renderWithToken = async (token: string | null, ui: React.ReactNode) => {
   const storage = memoryTokenStorage();
   if (token) await storage.setTokens({ access: token, refresh: 'r' });
-  return render(<AuthProvider storage={storage}>{ui}</AuthProvider>);
+  return render(
+    <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+      {ui}
+    </AuthProvider>,
+  );
 };
 
 describe('<RequireAuth>', () => {
@@ -68,7 +73,7 @@ describe('<RequireAuth>', () => {
     const token = makeJwt({ u: 'u', si: 'si', s: [] });
     await storage.setTokens({ access: token, refresh: 'r' });
     render(
-      <AuthProvider storage={storage}>
+      <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
         <RequireAuth fallback={<span>login</span>} loadingFallback={<span>loading</span>}>
           <span>secret</span>
         </RequireAuth>

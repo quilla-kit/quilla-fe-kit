@@ -4,12 +4,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AuthProvider } from '../src/auth.provider.js';
 import { ScopeGuard } from '../src/scope.guard.js';
 import { makeJwt } from './helpers/make-jwt.js';
+import { quillaFromClaims } from './helpers/quilla-from-claims.js';
 
 const renderWithScopes = async (scopes: string[], ui: React.ReactNode) => {
   const storage = memoryTokenStorage();
   const token = makeJwt({ u: 'u', si: 'si', s: scopes });
   await storage.setTokens({ access: token, refresh: 'r' });
-  return render(<AuthProvider storage={storage}>{ui}</AuthProvider>);
+  return render(
+    <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+      {ui}
+    </AuthProvider>,
+  );
 };
 
 describe('<ScopeGuard>', () => {

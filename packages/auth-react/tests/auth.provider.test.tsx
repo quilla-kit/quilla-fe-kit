@@ -5,10 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../src/auth.provider.js';
 import { useAuth } from '../src/use-auth.hook.js';
 import { makeJwt } from './helpers/make-jwt.js';
+import { type QuillaTokenClaims, quillaFromClaims } from './helpers/quilla-from-claims.js';
 
 const wrap = (storage = memoryTokenStorage()) => {
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <AuthProvider storage={storage}>{children}</AuthProvider>
+    <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+      {children}
+    </AuthProvider>
   );
   return { wrapper, storage };
 };
@@ -26,7 +29,7 @@ describe('AuthProvider', () => {
     expect(result.current.principal).toBeUndefined();
   });
 
-  it('hydrates principal from a valid stored token', async () => {
+  it('hydrates principal from a valid stored token via fromClaims', async () => {
     const storage = memoryTokenStorage();
     const token = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'] });
     await storage.setTokens({ access: token, refresh: 'r' });
@@ -43,7 +46,7 @@ describe('AuthProvider', () => {
     });
   });
 
-  it('clears storage when stored token fails to parse', async () => {
+  it('clears storage when stored token fails to decode', async () => {
     const storage = memoryTokenStorage();
     await storage.setTokens({ access: 'garbage', refresh: 'r' });
 
@@ -55,7 +58,20 @@ describe('AuthProvider', () => {
     expect(await storage.getAccessToken()).toBeNull();
   });
 
-  it('signIn parses + persists tokens, signOut clears state and storage', async () => {
+  it('clears storage when fromClaims returns null', async () => {
+    const storage = memoryTokenStorage();
+    const token = makeJwt({ si: 'scope-only' });
+    await storage.setTokens({ access: token, refresh: 'r' });
+
+    const { wrapper } = wrap(storage);
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(await storage.getAccessToken()).toBeNull();
+  });
+
+  it('signIn maps + persists tokens, signOut clears state and storage', async () => {
     const { wrapper, storage } = wrap();
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -78,7 +94,7 @@ describe('AuthProvider', () => {
     expect(await storage.getAccessToken()).toBeNull();
   });
 
-  it('signIn throws when access token cannot be parsed', async () => {
+  it('signIn throws when token cannot be mapped', async () => {
     const { wrapper } = wrap();
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -90,7 +106,8 @@ describe('AuthProvider', () => {
     ).rejects.toThrow(/Principal/);
   });
 
-  it('honors a custom parseClaims override', async () => {
+  it('honors a custom fromClaims for a non-quilla claim shape', async () => {
+    type AltClaims = { sub: string; org: string; perms: string[] };
     const storage = memoryTokenStorage();
     const token = makeJwt({ sub: 'alt-user', org: 'alt-scope', perms: ['x'] });
     await storage.setTokens({ access: token, refresh: 'r' });
@@ -98,14 +115,11 @@ describe('AuthProvider', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <AuthProvider
         storage={storage}
-        parseClaims={(t) => {
-          const p = JSON.parse(Buffer.from(t.split('.')[1] ?? '', 'base64').toString('utf8')) as {
-            sub: string;
-            org: string;
-            perms: string[];
-          };
-          return { userId: p.sub, scopeId: p.org, scopes: p.perms };
-        }}
+        fromClaims={(c: AltClaims) => ({
+          userId: c.sub,
+          scopeId: c.org,
+          scopes: c.perms,
+        })}
       >
         {children}
       </AuthProvider>
@@ -118,5 +132,19 @@ describe('AuthProvider', () => {
       scopeId: 'alt-scope',
       scopes: ['x'],
     });
+  });
+
+  it('quillaFromClaims defaults scopes to [] when claim `s` is missing', () => {
+    const claims: QuillaTokenClaims = { u: 'u', si: 'si' };
+    expect(quillaFromClaims(claims)).toEqual({
+      userId: 'u',
+      scopeId: 'si',
+      scopes: [],
+    });
+  });
+
+  it('quillaFromClaims returns null when required fields are missing', () => {
+    expect(quillaFromClaims({ si: 'si' } as unknown as QuillaTokenClaims)).toBeNull();
+    expect(quillaFromClaims({ u: 'u' } as unknown as QuillaTokenClaims)).toBeNull();
   });
 });

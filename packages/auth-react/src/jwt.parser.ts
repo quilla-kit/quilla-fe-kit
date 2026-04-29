@@ -1,8 +1,3 @@
-import type { JwtClaims } from './jwt-claims.type.js';
-import type { Principal } from './principal.type.js';
-
-export type ClaimsParser = (token: string) => Principal | null;
-
 const decodeBase64Url = (input: string): string => {
   const padded = input.replace(/-/g, '+').replace(/_/g, '/');
   const pad = padded.length % 4;
@@ -14,7 +9,7 @@ const decodeBase64Url = (input: string): string => {
   return atobFn(normalized);
 };
 
-export const decodeJwtPayload = <T = JwtClaims>(token: string): T | null => {
+export const decodeJwtPayload = <T>(token: string): T | null => {
   const parts = token.split('.');
   if (parts.length < 2) return null;
   const payload = parts[1];
@@ -24,16 +19,4 @@ export const decodeJwtPayload = <T = JwtClaims>(token: string): T | null => {
   } catch {
     return null;
   }
-};
-
-export const defaultClaimsParser: ClaimsParser = (token) => {
-  const claims = decodeJwtPayload<JwtClaims>(token);
-  if (!claims || typeof claims.u !== 'string' || typeof claims.si !== 'string') {
-    return null;
-  }
-  return {
-    userId: claims.u,
-    scopeId: claims.si,
-    scopes: Array.isArray(claims.s) ? claims.s : [],
-  };
 };

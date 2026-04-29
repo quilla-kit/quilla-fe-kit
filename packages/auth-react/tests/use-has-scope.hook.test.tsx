@@ -5,22 +5,27 @@ import { describe, expect, it } from 'vitest';
 import { AuthProvider } from '../src/auth.provider.js';
 import { useHasScope } from '../src/use-has-scope.hook.js';
 import { makeJwt } from './helpers/make-jwt.js';
+import { quillaFromClaims } from './helpers/quilla-from-claims.js';
 
 const wrapWithScopes = async (scopes: string[]) => {
   const storage = memoryTokenStorage();
   const token = makeJwt({ u: 'u', si: 'si', s: scopes });
   await storage.setTokens({ access: token, refresh: 'r' });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <AuthProvider storage={storage}>{children}</AuthProvider>
+    <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+      {children}
+    </AuthProvider>
   );
   return wrapper;
 };
 
 describe('useHasScope', () => {
-  it('returns false when no principal is loaded yet', async () => {
+  it('returns false when no principal is loaded yet', () => {
     const storage = memoryTokenStorage();
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <AuthProvider storage={storage}>{children}</AuthProvider>
+      <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+        {children}
+      </AuthProvider>
     );
     const { result } = renderHook(() => useHasScope(['admin']), { wrapper });
     expect(result.current).toBe(false);

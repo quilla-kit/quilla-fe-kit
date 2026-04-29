@@ -3,26 +3,25 @@
 React adapter for [`@quilla-fe-kit/auth`](../auth):
 
 - **`AuthProvider`** — single source of auth state. Reads the access token
-  from a `TokenStorage` on mount, decodes it into a `Principal`, and exposes
-  `signIn(tokens)` / `signOut()`.
+  from a `TokenStorage` on mount, runs it through your `fromClaims` mapper
+  to produce a `Principal`, and exposes `signIn(tokens)` / `signOut()`.
 - **`useAuth()`** — `{ principal, isAuthenticated, isLoading, signIn, signOut }`.
   Throws if no provider is found — fail-fast wiring.
 - **`<RequireAuth>`** — route guard that renders `fallback` when unauthenticated
-  and `forbiddenFallback` when authenticated but missing a required role.
+  and `forbiddenFallback` when authenticated but missing a required scope.
   Router-agnostic: pass any `ReactNode` (e.g. `<Navigate to="/login" />`).
-- **`<ScopeGuard>` + `useHasScope()`** — role-gated rendering for buttons,
+- **`<ScopeGuard>` + `useHasScope()`** — scope-gated rendering for buttons,
   menu items, and inline pieces of UI.
-- **`defaultClaimsParser`** — parses JWTs in the `@quilla-kit` BE convention
-  (`{ u: userId, si: scopeId, s?: scopes[] }`) into a `Principal`. Pluggable
-  for apps with a different claim shape.
+- **`decodeJwtPayload<T>()`** — pure base64url + JSON decoder for JWT
+  payloads. Returns `null` on malformed input.
 
 Runtime deps: `@quilla-fe-kit/auth`, `@quilla-fe-kit/api-client` (for the
 `AuthSession` wire shape that `Principal` extends).
 Peer deps: `react` ≥ 18.
 
 **Zero external runtime deps.** JWT decoding is hand-rolled against
-`globalThis.atob` — no `jwt-decode` dependency. The package only *decodes*
-claims; signature verification is the BE's job.
+`globalThis.atob`. The package only *decodes* claims; signature
+verification is the BE's job.
 
 ## Install
 
@@ -35,17 +34,53 @@ pnpm add @quilla-fe-kit/auth-react \
 
 Node 22+, ESM-only.
 
+## The `fromClaims` contract
+
+`auth-react` ships **no opinion** about your JWT claim shape. You provide
+a `fromClaims` mapper that turns decoded claims into a `Principal`. This
+mirrors the discipline `@quilla-kit/security` applies on the BE side: the
+package owns the interface, the consumer owns the encode/decode glue.
+
+```ts
+import type { ClaimsMapper, Principal } from '@quilla-fe-kit/auth-react';
+
+// 1. Declare the wire shape you receive from your BE.
+type TokenClaims = {
+  u: string;        // userId
+  si: string;       // scopeId
+  s?: string[];     // scopes (RBAC)
+};
+
+// 2. Map claims → Principal. Return null when required fields are missing
+//    so AuthProvider can clear storage and stay unauthenticated.
+export const fromClaims: ClaimsMapper<TokenClaims> = (c) => {
+  if (!c.u || !c.si) return null;
+  return {
+    userId: c.u,
+    scopeId: c.si,
+    scopes: c.s ?? [],
+  };
+};
+```
+
+Why this lives in your app and not the toolkit: claim names are part of
+your BE's wire contract (see `@quilla-kit/security`'s `TokenClaims`). The
+toolkit shouldn't ship a published type that pins those names — when the
+BE evolves them, you'd need a coordinated FE toolkit release. Five lines
+in your auth-setup module is the right boundary.
+
 ## Quick start
 
 ```tsx
 import { AuthProvider, RequireAuth, useAuth } from '@quilla-fe-kit/auth-react';
 import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
 import { Navigate, Routes, Route } from 'react-router-dom';
+import { fromClaims } from './security/from-claims';
 
 const storage = localStorageTokenStorage();
 
 export const App = () => (
-  <AuthProvider storage={storage}>
+  <AuthProvider storage={storage} fromClaims={fromClaims}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
@@ -64,26 +99,23 @@ export const App = () => (
 ## `AuthProvider`
 
 ```tsx
-<AuthProvider
-  storage={localStorageTokenStorage()}
-  parseClaims={myCustomClaimsParser} // optional override
->
+<AuthProvider storage={storage} fromClaims={fromClaims}>
   <App />
 </AuthProvider>
 ```
 
 On mount it reads the access token from `storage`, runs it through
-`parseClaims` (defaults to the `@quilla-kit` BE claim shape), and seeds the
-context. If decoding fails it clears storage and stays unauthenticated.
+`decodeJwtPayload` and then `fromClaims`, and seeds the context. If
+either step returns `null`, it clears storage and stays unauthenticated.
 
-> **Note:** the `storage` and `parseClaims` props must be stable across
-> renders. Construct `storage` once at the composition root (module scope
-> or a `useMemo`) — passing a new instance each render will trigger
-> re-hydration in a loop. Same for a custom `parseClaims`.
+> **Note:** the `storage` and `fromClaims` props must be stable across
+> renders. Construct both once at the composition root (module scope or a
+> `useMemo`) — passing a new instance each render will trigger
+> re-hydration in a loop.
 
-The provider deliberately **does not own login**. Your login flow calls the
-API itself (likely via `@quilla-fe-kit/api-client-react-query`) and hands the
-returned tokens to `signIn`:
+The provider deliberately **does not own login**. Your login flow calls
+the API itself (likely via `@quilla-fe-kit/api-client-react-query`) and
+hands the returned tokens to `signIn`:
 
 ```tsx
 const LoginPage = () => {
@@ -102,8 +134,8 @@ const LoginPage = () => {
 };
 ```
 
-This keeps credential shapes, error mapping, and refresh-token semantics out
-of the toolkit. Apps with email/password login, magic links, or OAuth
+This keeps credential shapes, error mapping, and refresh-token semantics
+out of the toolkit. Apps with email/password login, magic links, or OAuth
 callbacks all use the same primitive.
 
 ## `useAuth()`
@@ -170,7 +202,7 @@ const canEdit = useHasScope(['users:write']);
 const canSeeAdmin = useHasScope(['admin', 'auditor'], 'some');
 ```
 
-## JWT claims and `Principal`
+## `Principal`
 
 `Principal` extends `AuthSession` (the BE wire shape from
 `@quilla-fe-kit/api-client`) with a `scopes` array:
@@ -183,40 +215,14 @@ type Principal = {
 };
 ```
 
-The default parser expects the `@quilla-kit` BE claim shape — short,
-deliberately opaque names so tokens don't telegraph the BE schema:
-
-```ts
-type JwtClaims = {
-  u: string;          // userId
-  si: string;         // scopeId
-  s?: string[];       // scopes (RBAC) — optional
-};
-```
-
-For non-default claim shapes, plug in your own parser:
-
-```ts
-import { decodeJwtPayload, type ClaimsParser } from '@quilla-fe-kit/auth-react';
-
-const parseClaims: ClaimsParser = (token) => {
-  const claims = decodeJwtPayload<{ sub: string; org: string; perms: string[] }>(token);
-  if (!claims) return null;
-  return { userId: claims.sub, scopeId: claims.org, scopes: claims.perms ?? [] };
-};
-
-<AuthProvider storage={storage} parseClaims={parseClaims}>
-  <App />
-</AuthProvider>
-```
-
-`decodeJwtPayload<T>(token)` is exported standalone if you need it outside
-the provider — it returns `null` on malformed input rather than throwing.
+This is the toolkit's canonical user-identity shape inside React. Your
+`fromClaims` is the boundary that translates whatever your BE puts in the
+JWT into this type.
 
 ## API surface
 
 ### Components
-- `<AuthProvider storage parseClaims? children>`
+- `<AuthProvider storage fromClaims children>`
 - `<RequireAuth fallback scopes? forbiddenFallback? loadingFallback? children>`
 - `<ScopeGuard scopes mode? fallback? children>`
 
@@ -225,28 +231,28 @@ the provider — it returns `null` on malformed input rather than throwing.
 - `useHasScope(scopes, mode?) → boolean`
 
 ### Helpers
-- `decodeJwtPayload<T>(token) → T | null`
-- `defaultClaimsParser` — the BE-shape claim parser used by `AuthProvider`
-  unless overridden.
+- `decodeJwtPayload<T>(token) → T | null` — pure base64url + JSON decode
 
 ### Types
-- `Principal`, `JwtClaims`, `ClaimsParser`, `HasScopeMode`
-- `AuthContextValue`, `AuthProviderProps`, `RequireAuthProps`, `ScopeGuardProps`
+- `Principal`, `ClaimsMapper<TClaims>`, `HasScopeMode`
+- `AuthContextValue`, `AuthProviderProps<TClaims>`, `RequireAuthProps`,
+  `ScopeGuardProps`
 
 ## Design notes
 
-- **Provider owns no credentials, no error mapping, no login mutation.** It
-  exposes `signIn(tokens)` / `signOut()` — callers wire their own login
+- **Provider owns no credentials, no error mapping, no login mutation.**
+  It exposes `signIn(tokens)` / `signOut()` — callers wire their own login
   against `api-client`. This keeps the package decoupled from how a given
   app shapes its login (email/password, magic link, OAuth, SSO).
-- **Guards are router-agnostic.** Fallbacks are `ReactNode`, not paths. The
-  package has zero `react-router-dom` dependency.
+- **Toolkit owns no JWT claim shape.** `fromClaims` is required. Mirrors
+  `@quilla-kit/security`'s "interface, not adapter" discipline — the BE
+  side has the consumer provide `toClaims`/`fromClaims` inside their own
+  `TokenService` adapter. FE applies the same boundary.
+- **Guards are router-agnostic.** Fallbacks are `ReactNode`, not paths.
+  The package has zero `react-router-dom` dependency.
 - **No app-specific flags** like `mustChangePassword`. Compose your own
   guard on top of `<RequireAuth>` if you need that flow.
-- **`scopes` semantics in `<RequireAuth>` is `some` (any-of).** This matches
-  typical RBAC route checks ("admin OR auditor can see this page"). For
-  all-of semantics on a single piece of UI, use `<ScopeGuard mode="every">`.
-- **Claim names are deliberately short and opaque** (`u`, `si`, `s`).
-  Tokens travel through proxies, browser devtools, and error logs — full
-  field names like `userId`/`scopeId` would broadcast BE schema details.
-  The `Principal` shape is verbose; the wire is not.
+- **`scopes` semantics in `<RequireAuth>` is `some` (any-of).** This
+  matches typical RBAC route checks ("admin OR auditor can see this
+  page"). For all-of semantics on a single piece of UI, use
+  `<ScopeGuard mode="every">`.
