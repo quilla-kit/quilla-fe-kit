@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/errors" },
+    { "path": "./packages/auth" },
+    { "path": "./packages/api-client" },
+    { "path": "./packages/api-client-react-query" },
+    { "path": "./packages/auth-react" }
+  ]
+}
