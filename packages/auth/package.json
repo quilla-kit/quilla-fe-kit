@@ -1,6 +1,6 @@
 {
   "name": "@quilla-fe-kit/auth",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Auth primitives for FE projects: pluggable TokenStorage interface plus three default adapters — memory (SSR-safe), localStorage (browser), and cookie (Secure / SameSite). Zero runtime dependencies.",
   "license": "MIT",
   "author": "Max Martinez",
@@ -35,7 +35,11 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
