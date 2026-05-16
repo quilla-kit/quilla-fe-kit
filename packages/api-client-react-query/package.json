@@ -1,6 +1,6 @@
 {
   "name": "@quilla-fe-kit/api-client-react-query",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React Query adapter for @quilla-fe-kit/api-client: QueryClient factory, useQueryBase, mutation base hooks, query meta module augmentation, callback-shaped notification hooks.",
   "license": "MIT",
   "author": "Max Martinez",

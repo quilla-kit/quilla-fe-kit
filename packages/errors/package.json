@@ -1,6 +1,6 @@
 {
   "name": "@quilla-fe-kit/errors",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed error hierarchy for FE projects: QuillaFeError base + HTTP/network/business-rule subclasses with code, context, cause, JSON serialization, and a cross-realm Symbol.for brand. Zero runtime dependencies.",
   "license": "MIT",
   "author": "Max Martinez",

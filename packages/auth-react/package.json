@@ -1,6 +1,6 @@
 {
   "name": "@quilla-fe-kit/auth-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React adapter for @quilla-fe-kit/auth: AuthProvider with pluggable signIn/signOut, JWT-claim → Principal decoder, RequireAuth and ScopeGuard route/render guards, useAuth + useHasScope hooks. Zero external runtime deps; React as peer.",
   "license": "MIT",
   "author": "Max Martinez",
