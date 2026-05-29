@@ -14,8 +14,12 @@ module load.
 
 ## What's in scope
 
-- **Token storage** *(today)* — the `TokenStorage` interface +
+- **Token storage** — the `TokenStorage` interface +
   `memoryTokenStorage`, `localStorageTokenStorage`, `cookieTokenStorage`.
+- **JWT utilities** — `decodeJwtPayload`, `decodeJwtHeader`,
+  `isTokenExpired` (with clock-skew and `nbf` support), `getTokenExpiry`.
+  Hand-rolled against `globalThis.atob` — zero external deps, works in
+  browser and Node.
 - **Future** *(not yet shipped)* — login-flow state helpers, OAuth state
   generators, refresh-token rotation utilities. Each addition will keep
   the same shape: small, transport-agnostic, optional.
@@ -178,6 +182,86 @@ The convention used by the bundled adapters: validate platform globals
 lazily (at call time, not construction), throw a clear `Error` with a
 remediation hint. This keeps factory calls cheap and lets SSR code path
 construct the adapter without crashing if it never actually reads from it.
+
+## JWT utilities
+
+Framework-agnostic helpers for reading and checking JWTs on the client.
+Signature verification is the BE's responsibility; these utilities decode
+and inspect claims that have already been verified by the server.
+
+### `decodeJwtPayload<T>(token)`
+
+Decodes the payload segment of a JWT without verifying the signature.
+Returns `null` on any malformed input.
+
+```ts
+import { decodeJwtPayload } from '@quilla-fe-kit/auth';
+
+type TokenClaims = { u: string; si: string; s?: string[] };
+
+const claims = decodeJwtPayload<TokenClaims>(token);
+// claims: TokenClaims | null
+```
+
+### `decodeJwtHeader<T>(token)`
+
+Same as `decodeJwtPayload` but reads the header segment instead.
+
+```ts
+import { decodeJwtHeader } from '@quilla-fe-kit/auth';
+
+const header = decodeJwtHeader(token);
+// header: JwtHeader | null
+// { alg: string; typ?: string; kid?: string; ... }
+```
+
+### `isTokenExpired(token, options?)`
+
+Returns `true` when the token should be rejected — expired (`exp` in the
+past) or not yet valid (`nbf` in the future). Fail-safe: tokens that lack
+`exp` are treated as expired.
+
+```ts
+import { isTokenExpired } from '@quilla-fe-kit/auth';
+
+if (isTokenExpired(token)) {
+  // refresh or redirect to login
+}
+
+// With clock-skew tolerance (e.g., 30 s grace period on both ends):
+if (isTokenExpired(token, { clockSkewSeconds: 30 })) { /* ... */ }
+```
+
+`clockSkewSeconds` extends the validity window at expiry (`exp + skew`)
+and relaxes early rejection at the `nbf` boundary (`nbf - skew`).
+
+### `getTokenExpiry(token)`
+
+Returns a `Date` for the `exp` claim, or `null` if absent or malformed.
+Useful for scheduling a proactive refresh before the token expires.
+
+```ts
+import { getTokenExpiry } from '@quilla-fe-kit/auth';
+
+const expiry = getTokenExpiry(token);
+if (expiry) {
+  const msUntilExpiry = expiry.getTime() - Date.now();
+  // schedule refresh at msUntilExpiry - 60_000
+}
+```
+
+### `JwtPayload` and `JwtHeader` types
+
+Standard RFC 7519 claim types re-exported for use in `fromClaims` mappers
+and custom decoder functions:
+
+```ts
+import type { JwtHeader, JwtPayload } from '@quilla-fe-kit/auth';
+```
+
+`JwtPayload` covers the registered claims (`iss`, `sub`, `aud`, `exp`,
+`nbf`, `iat`, `jti`) — all optional. Extend it with an intersection for
+your own claim shape: `type TokenClaims = JwtPayload & { u: string; si: string; }`.
 
 ## Default key namespace
 

@@ -1,7 +1,7 @@
-import { memoryTokenStorage } from '@quilla-fe-kit/auth';
+import { decodeJwtPayload, memoryTokenStorage } from '@quilla-fe-kit/auth';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../src/auth.provider.js';
 import { useAuth } from '../src/use-auth.hook.js';
 import { makeJwt } from './helpers/make-jwt.js';
@@ -10,6 +10,22 @@ import { type QuillaTokenClaims, quillaFromClaims } from './helpers/quilla-from-
 const wrap = (storage = memoryTokenStorage()) => {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthProvider storage={storage} fromClaims={quillaFromClaims}>
+      {children}
+    </AuthProvider>
+  );
+  return { wrapper, storage };
+};
+
+const wrapWith = (
+  storage = memoryTokenStorage(),
+  decodeToken?: (token: string) => QuillaTokenClaims | null,
+) => {
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <AuthProvider
+      storage={storage}
+      fromClaims={quillaFromClaims}
+      {...(decodeToken ? { decodeToken } : {})}
+    >
       {children}
     </AuthProvider>
   );
@@ -146,5 +162,85 @@ describe('AuthProvider', () => {
   it('quillaFromClaims returns null when required fields are missing', () => {
     expect(quillaFromClaims({ si: 'si' } as unknown as QuillaTokenClaims)).toBeNull();
     expect(quillaFromClaims({ u: 'u' } as unknown as QuillaTokenClaims)).toBeNull();
+  });
+
+  describe('default decoder expiry behavior', () => {
+    const NOW = 1700000000;
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(NOW * 1000);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('rejects an expired token on hydration and clears storage', async () => {
+      const storage = memoryTokenStorage();
+      const expiredToken = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'], exp: NOW - 1 });
+      await storage.setTokens({ access: expiredToken, refresh: 'r' });
+
+      const { wrapper } = wrapWith(storage);
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(await storage.getAccessToken()).toBeNull();
+    });
+
+    it('accepts a valid non-expired token on hydration', async () => {
+      const storage = memoryTokenStorage();
+      const validToken = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'], exp: NOW + 3600 });
+      await storage.setTokens({ access: validToken, refresh: 'r' });
+
+      const { wrapper } = wrapWith(storage);
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.principal?.userId).toBe('user-1');
+    });
+
+    it('custom decodeToken is used instead of the default, allowing expired tokens', async () => {
+      const storage = memoryTokenStorage();
+      const expiredToken = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'], exp: NOW - 1 });
+      await storage.setTokens({ access: expiredToken, refresh: 'r' });
+
+      const { wrapper } = wrapWith(storage, (token) => decodeJwtPayload<QuillaTokenClaims>(token));
+      const { result } = renderHook(() => useAuth(), { wrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.principal?.userId).toBe('user-1');
+    });
+
+    it('signIn rejects an expired token via the default decoder', async () => {
+      const { wrapper } = wrapWith();
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const expiredToken = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'], exp: NOW - 1 });
+      await expect(
+        act(async () => {
+          await result.current.signIn({ access: expiredToken, refresh: 'r' });
+        }),
+      ).rejects.toThrow(/Principal/);
+    });
+
+    it('signIn accepts a token when custom decodeToken overrides expiry', async () => {
+      const { wrapper } = wrapWith(memoryTokenStorage(), (token) =>
+        decodeJwtPayload<QuillaTokenClaims>(token),
+      );
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const expiredToken = makeJwt({ u: 'user-1', si: 'scope-1', s: ['admin'], exp: NOW - 1 });
+      await act(async () => {
+        await result.current.signIn({ access: expiredToken, refresh: 'r' });
+      });
+
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.principal?.userId).toBe('user-1');
+    });
   });
 });
