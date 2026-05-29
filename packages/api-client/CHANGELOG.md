@@ -1,5 +1,12 @@
 # @quilla-fe-kit/api-client
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [aeb2a49]
+  - @quilla-fe-kit/auth@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
