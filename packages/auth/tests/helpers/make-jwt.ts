@@ -5,10 +5,8 @@ const toBase64Url = (input: string): string =>
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-const FAR_FUTURE = 9999999999;
-
 export const makeJwt = (payload: Record<string, unknown>): string => {
   const header = toBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body = toBase64Url(JSON.stringify({ exp: FAR_FUTURE, ...payload }));
+  const body = toBase64Url(JSON.stringify(payload));
   return `${header}.${body}.signature`;
 };

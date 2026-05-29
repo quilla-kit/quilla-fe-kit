@@ -9,3 +9,11 @@ export {
   type CookieTokenStorageOptions,
   type CookieSameSite,
 } from './cookie.storage.js';
+export type { JwtHeader, JwtPayload } from './jwt.type.js';
+export {
+  decodeJwtPayload,
+  decodeJwtHeader,
+  isTokenExpired,
+  getTokenExpiry,
+  type IsTokenExpiredOptions,
+} from './jwt.parser.js';

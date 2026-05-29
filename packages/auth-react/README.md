@@ -12,15 +12,13 @@ React adapter for [`@quilla-fe-kit/auth`](../auth):
   Router-agnostic: pass any `ReactNode` (e.g. `<Navigate to="/login" />`).
 - **`<ScopeGuard>` + `useHasScope()`** — scope-gated rendering for buttons,
   menu items, and inline pieces of UI.
-- **`decodeJwtPayload<T>()`** — pure base64url + JSON decoder for JWT
-  payloads. Returns `null` on malformed input.
 
 Runtime deps: `@quilla-fe-kit/auth`, `@quilla-fe-kit/api-client` (for the
 `AuthSession` wire shape that `Principal` extends).
 Peer deps: `react` ≥ 18.
 
-**Zero external runtime deps.** JWT decoding is hand-rolled against
-`globalThis.atob`. The package only *decodes* claims; signature
+**Zero external runtime deps.** JWT decoding is hand-rolled in
+`@quilla-fe-kit/auth`. The package only *decodes* claims; signature
 verification is the BE's job.
 
 ## Install
@@ -104,14 +102,70 @@ export const App = () => (
 </AuthProvider>
 ```
 
-On mount it reads the access token from `storage`, runs it through
-`decodeJwtPayload` and then `fromClaims`, and seeds the context. If
-either step returns `null`, it clears storage and stays unauthenticated.
+On mount it reads the access token from `storage`, decodes it, runs it
+through `fromClaims`, and seeds the context. If any step returns `null`,
+it clears storage and stays unauthenticated.
 
-> **Note:** the `storage` and `fromClaims` props must be stable across
-> renders. Construct both once at the composition root (module scope or a
-> `useMemo`) — passing a new instance each render will trigger
+**Expiry is checked by default.** The built-in decoder calls
+`isTokenExpired` before decoding claims, so a stored token that has
+expired is treated as absent — no stale session is hydrated. Pass a
+`decodeToken` prop to override this behavior (see [Custom token
+decoder](#custom-token-decoder) below).
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `storage` | `TokenStorage` | Required. Where tokens are read and written. |
+| `fromClaims` | `ClaimsMapper<TClaims>` | Required. Maps decoded claims to a `Principal`. Return `null` to reject the token. |
+| `decodeToken` | `TokenDecoder<TClaims>` | Optional. Custom decoder replacing the default. |
+| `children` | `ReactNode` | Required. |
+
+> **Note:** `storage`, `fromClaims`, and `decodeToken` must be stable
+> across renders. Construct them once at the composition root (module
+> scope or a `useMemo`) — passing new instances each render triggers
 > re-hydration in a loop.
+
+## Custom token decoder
+
+The `decodeToken` prop lets you replace the default decode step entirely.
+The function receives the raw access token string and returns decoded
+claims (`TClaims`) or `null` to reject the token.
+
+**1. Default — secure out of the box (no `decodeToken` needed):**
+
+```tsx
+// Expiry is checked automatically. Nothing extra to wire.
+<AuthProvider storage={storage} fromClaims={fromClaims}>
+  {children}
+</AuthProvider>
+```
+
+**2. Adding clock-skew tolerance:**
+
+```tsx
+import { decodeJwtPayload, isTokenExpired } from '@quilla-fe-kit/auth';
+
+const decodeToken = <TClaims,>(token: string): TClaims | null =>
+  isTokenExpired(token, { clockSkewSeconds: 30 })
+    ? null
+    : decodeJwtPayload<TClaims>(token);
+
+<AuthProvider storage={storage} fromClaims={fromClaims} decodeToken={decodeToken}>
+  {children}
+</AuthProvider>
+```
+
+**3. Non-JWT token format:**
+
+```tsx
+// Provide your own parser — return null to reject the token.
+const decodeToken = <TClaims,>(token: string): TClaims | null => {
+  try {
+    return myCustomParser<TClaims>(token);
+  } catch {
+    return null;
+  }
+};
+```
 
 The provider deliberately **does not own login**. Your login flow calls
 the API itself (likely via `@quilla-fe-kit/api-client-react-query`) and
@@ -222,7 +276,7 @@ JWT into this type.
 ## API surface
 
 ### Components
-- `<AuthProvider storage fromClaims children>`
+- `<AuthProvider storage fromClaims decodeToken? children>`
 - `<RequireAuth fallback scopes? forbiddenFallback? loadingFallback? children>`
 - `<ScopeGuard scopes mode? fallback? children>`
 
@@ -230,13 +284,14 @@ JWT into this type.
 - `useAuth() → AuthContextValue`
 - `useHasScope(scopes, mode?) → boolean`
 
-### Helpers
-- `decodeJwtPayload<T>(token) → T | null` — pure base64url + JSON decode
-
 ### Types
-- `Principal`, `ClaimsMapper<TClaims>`, `HasScopeMode`
+- `Principal`, `ClaimsMapper<TClaims>`, `TokenDecoder<TClaims>`, `HasScopeMode`
 - `AuthContextValue`, `AuthProviderProps<TClaims>`, `RequireAuthProps`,
   `ScopeGuardProps`
+
+JWT utilities (`decodeJwtPayload`, `decodeJwtHeader`, `isTokenExpired`,
+`getTokenExpiry`) live in `@quilla-fe-kit/auth` — import them from there
+directly.
 
 ## Design notes
 
