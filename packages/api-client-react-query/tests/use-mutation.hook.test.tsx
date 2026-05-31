@@ -1,8 +1,13 @@
 import { OCC_HEADER } from '@quilla-fe-kit/api-client';
 import { act, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHooks } from '../src/hooks.factory.js';
+import { createQueryClient, resetQueryClient } from '../src/query-client.factory.js';
 import { createFakeHttpClient, renderHookWithProviders } from './helpers/render.helper.js';
+
+beforeEach(() => {
+  resetQueryClient();
+});
 
 describe('usePostMutationBase', () => {
   it('POSTs to the configured url with the variables as body', async () => {
@@ -72,6 +77,7 @@ describe('usePutMutationBase', () => {
   });
 
   it('attaches If-Match header from cached version when occ resolver is provided', async () => {
+    const queryClient = createQueryClient();
     const { client, calls } = createFakeHttpClient(async () => ({
       status: 200,
       headers: {},
@@ -79,11 +85,12 @@ describe('usePutMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result, queryClient } = renderHookWithProviders(
+    const { result } = renderHookWithProviders(
       () =>
         hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
+      { queryClient },
     );
     queryClient.setQueryData(['users', 5], { data: { id: 5 }, version: 11 });
 
@@ -95,6 +102,7 @@ describe('usePutMutationBase', () => {
   });
 
   it('mutation rejects when occ resolver finds no cached entry', async () => {
+    const queryClient = createQueryClient();
     const { client } = createFakeHttpClient(async () => ({
       status: 200,
       headers: {},
@@ -107,6 +115,7 @@ describe('usePutMutationBase', () => {
         hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
+      { queryClient },
     );
 
     await act(async () => {
@@ -179,6 +188,7 @@ describe('useDeleteMutationBase', () => {
   });
 
   it('handles {id} variable shape and attaches If-Match when occ is provided', async () => {
+    const queryClient = createQueryClient();
     const { client, calls } = createFakeHttpClient(async () => ({
       status: 204,
       headers: {},
@@ -186,11 +196,12 @@ describe('useDeleteMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result, queryClient } = renderHookWithProviders(
+    const { result } = renderHookWithProviders(
       () =>
         hooks.useDeleteMutationBase<void, { id: number }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
+      { queryClient },
     );
     queryClient.setQueryData(['users', 3], { data: { id: 3 }, version: 4 });
 
@@ -222,5 +233,34 @@ describe('mutations — invalidate-on-success integration smoke', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual({ id: 'created' });
+  });
+});
+
+describe('mutations — invalidate option uses getQueryInvalidator()', () => {
+  it('calls invalidate on the singleton invalidator with the resolved keys on success', async () => {
+    const queryClient = createQueryClient();
+    const spy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
+
+    const { client } = createFakeHttpClient(async () => ({
+      status: 201,
+      headers: {},
+      data: { id: 'new' },
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(
+      () =>
+        hooks.usePostMutationBase<{ id: string }, { name: string }>('/users', {
+          invalidate: [['users', 'list']],
+        }),
+      { queryClient },
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: 'A' });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['users', 'list'] });
   });
 });

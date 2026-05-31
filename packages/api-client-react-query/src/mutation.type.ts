@@ -1,5 +1,6 @@
 import type { HttpHeaders } from '@quilla-fe-kit/api-client';
-import { type QueryClient, type QueryKey, type UseMutationOptions } from '@tanstack/react-query';
+import { type QueryKey, type UseMutationOptions } from '@tanstack/react-query';
+import { getQueryInvalidator } from './query-client.factory.js';
 
 export type IdAndBody<TBody> = {
   readonly id: string | number;
@@ -17,7 +18,6 @@ export const resolveInvalidateKeys = <TVars, TData>(
 ): QueryKey[] => (typeof invalidate === 'function' ? invalidate(vars, data) : invalidate);
 
 export const buildMutationOnSuccess = <TData, TVars>(
-  queryClient: QueryClient,
   invalidate: InvalidateKeys<TVars, TData> | undefined,
   userOnSuccess: UseMutationOptions<TData, unknown, TVars>['onSuccess'] | undefined,
 ): Pick<UseMutationOptions<TData, unknown, TVars>, 'onSuccess'> => {
@@ -25,11 +25,7 @@ export const buildMutationOnSuccess = <TData, TVars>(
   return {
     onSuccess: async (data, vars, onMutateResult, context) => {
       if (invalidate) {
-        await Promise.all(
-          resolveInvalidateKeys(invalidate, vars, data).map((key) =>
-            queryClient.invalidateQueries({ queryKey: key }),
-          ),
-        );
+        await getQueryInvalidator().invalidate(resolveInvalidateKeys(invalidate, vars, data));
       }
       await userOnSuccess?.(data, vars, onMutateResult, context);
     },

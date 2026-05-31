@@ -1,5 +1,5 @@
 import type { HttpClient, HttpHeaders } from '@quilla-fe-kit/api-client';
-import { useMutation, type UseMutationOptions, useQueryClient } from '@tanstack/react-query';
+import { useMutation, type UseMutationOptions } from '@tanstack/react-query';
 import { buildMutationOnSuccess, type InvalidateKeys, mergeMutationHeaders } from './mutation.type.js';
 import { buildOCCHeaders, type VersionResolver } from './occ.helper.js';
 
@@ -17,12 +17,11 @@ export const useDeleteMutationBase = <TData = void, TVars = string | number, TEr
   basePath: string,
   options: UseDeleteMutationOptions<TData, TVars, TError> = {},
 ) => {
-  const queryClient = useQueryClient();
   const { headers, occ, invalidate, onSuccess: userOnSuccess, ...rest } = options;
 
   return useMutation<TData, TError, TVars>({
     mutationFn: async (vars) => {
-      const merged = mergeMutationHeaders(headers, buildOCCHeaders(queryClient, occ, vars));
+      const merged = mergeMutationHeaders(headers, buildOCCHeaders(occ, vars));
       const id = isIdAndBody(vars) ? vars.id : (vars as string | number);
       const response = await client.request<TData>({
         method: 'DELETE',
@@ -32,7 +31,7 @@ export const useDeleteMutationBase = <TData = void, TVars = string | number, TEr
       return response.data;
     },
     ...rest,
-    ...buildMutationOnSuccess(queryClient, invalidate, userOnSuccess),
+    ...buildMutationOnSuccess(invalidate, userOnSuccess),
   });
 };
 

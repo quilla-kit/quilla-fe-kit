@@ -4,8 +4,15 @@ React Query adapter for [`@quilla-fe-kit/api-client`](../api-client):
 
 - **`createHooks(httpClient)`** — binds all hooks to an `HttpClient` instance.
   The client is an infrastructure detail: it never leaks into the component tree.
-- **`createQueryClient(config)`** — typed-error retry policy, optional
+- **`createQueryClient(config)`** — initialises the singleton `QueryClient`
+  and returns it. Throws on a second call. Typed-error retry policy, optional
   callback hooks for global UX (no toast lib coupling).
+- **`queryInvalidator`** — stable proxy object for the singleton invalidator.
+  Import at module scope and call it anywhere — defers the singleton lookup to
+  call time, so module initialisation order doesn't matter.
+- **`getQueryInvalidator()`** — explicit accessor; returns the `QueryInvalidator`
+  bound to the singleton. Use when you need the reference itself (e.g. to pass
+  to a function).
 - **`useQueryBase`** — wraps `useQuery` with debounced search filters,
   pagination + sort state, stable cache keys, and ETag-based version
   extraction.
@@ -35,19 +42,26 @@ Query version it wants — the adapter doesn't ship a duplicate.
 ## Quick start
 
 ```ts
-// lib/api.ts — configure once, outside the component tree
+// lib/api.ts — the api layer owns all query infrastructure
 import { createHttpClient } from '@quilla-fe-kit/api-client';
-import { createHooks, createQueryKeys } from '@quilla-fe-kit/api-client-react-query';
-import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
+import {
+  createQueryClient,
+  createHooks,
+  createQueryKeys,
+} from '@quilla-fe-kit/api-client-react-query';
 
-const httpClient = createHttpClient({
-  baseUrl: 'https://api.example.com',
-  storage: localStorageTokenStorage(),
-  refreshEndpoint: async (refreshToken) => { /* ... */ },
+// createQueryClient is called once. The returned QueryClient is exported
+// for QueryClientProvider. Everything that needs to invalidate imports
+// queryInvalidator from the package — no extra exports needed.
+export const queryClient = createQueryClient({
+  onQueryError: (err) => myToast.error(err.message),
+  onMutationSuccess: (_data, mutation) => {
+    if (mutation.meta?.showSuccess) myToast.success('Saved');
+  },
 });
 
-// Destructure so hooks are imported by name, same as any other hook.
-// The HttpClient never touches React context — it's bound here, at module level.
+const httpClient = createHttpClient({ baseUrl: 'https://api.example.com', ... });
+
 export const {
   useQueryBase,
   usePostMutationBase,
@@ -60,16 +74,9 @@ export const userKeys = createQueryKeys('users');
 ```
 
 ```tsx
-// app.tsx — wire up React Query's own cache provider
-import { createQueryClient } from '@quilla-fe-kit/api-client-react-query';
+// app.tsx — mounts the provider, imports queryClient from the api layer
+import { queryClient } from '@/lib/api';
 import { QueryClientProvider } from '@tanstack/react-query';
-
-const queryClient = createQueryClient({
-  onQueryError: (err) => myToast.error(err.message),
-  onMutationSuccess: (_data, mutation) => {
-    if (mutation.meta?.showSuccess) myToast.success('Saved');
-  },
-});
 
 export const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -100,15 +107,33 @@ const UserProfile = ({ id }: { id: number }) => {
 };
 ```
 
+```ts
+// realtime.ts — imperative invalidation outside the mutation lifecycle
+import { queryInvalidator } from '@quilla-fe-kit/api-client-react-query';
+import { userKeys } from '@/lib/api';
+
+// queryInvalidator is a stable proxy — safe to use at module scope.
+// The singleton lookup happens when the handler fires, not at import time.
+socket.on('user:updated', ({ id }) =>
+  queryInvalidator.invalidate([userKeys.detail(id), userKeys.lists()])
+);
+```
+
 ## `createQueryClient`
 
-Returns a `QueryClient` with sensible retry defaults wired to the typed
-errors from `@quilla-fe-kit/errors`:
+Initialises the singleton `QueryClient` and returns it. **Throws if called
+more than once** — this is the singleton guard that prevents accidental
+double-instantiation and the cache conflicts that follow.
+
+Call it once in your api layer and export the returned `QueryClient` for
+`QueryClientProvider`. Everything that needs to invalidate the cache imports
+`getQueryInvalidator()` from the package directly — no extra exports needed.
 
 ```ts
-const queryClient = createQueryClient({
-  // Optional callback hooks. Not invoked unless you provide them — the
-  // package never imports a toast library or pushes to global state.
+// lib/api.ts
+export const queryClient = createQueryClient({
+  // Optional callback hooks — not invoked unless you provide them.
+  // The package never imports a toast library or pushes to global state.
   onQueryError?: (error: Error, query: Query) => void,
   onQuerySuccess?: (data: unknown, query: Query) => void,
   onMutationError?: (error: Error, mutation: Mutation) => void,
@@ -119,6 +144,57 @@ const queryClient = createQueryClient({
     maxAttempts?: number,        // default 2 (other errors)
     networkMaxAttempts?: number, // default 1 (NetworkError only)
   },
+});
+```
+
+### Testing
+
+The singleton guard means tests that call `createQueryClient` must reset
+the state between runs. Use `resetQueryClient()` in `beforeEach`:
+
+```ts
+import { resetQueryClient } from '@quilla-fe-kit/api-client-react-query';
+import { beforeEach } from 'vitest';
+
+beforeEach(() => {
+  resetQueryClient();
+});
+```
+
+`resetQueryClient()` drops the internal reference — it does not call
+`queryClient.clear()`. If your tests mount a `QueryClientProvider`, tear
+down the component tree before or after calling it.
+
+When a hook under test uses `occ` or `invalidate`, both features read from
+the singleton cache. You must pass the singleton `queryClient` to your
+provider wrapper — otherwise OCC reads and cache invalidations will target
+a different `QueryClient` than the one backing the provider:
+
+```ts
+import { createQueryClient, resetQueryClient } from '@quilla-fe-kit/api-client-react-query';
+import { beforeEach, it } from 'vitest';
+
+beforeEach(() => {
+  resetQueryClient();
+});
+
+it('invalidates on success', async () => {
+  // Create the singleton and capture it for provider + cache seeding
+  const queryClient = createQueryClient();
+
+  const { result } = renderHookWithProviders(
+    () => hooks.usePutMutationBase('/users', {
+      occ: { versionKey: ({ id }) => userKeys.detail(id) },
+      invalidate: ({ id }) => [userKeys.detail(id), userKeys.lists()],
+    }),
+    { queryClient }, // ← must be the singleton, not a bare new QueryClient()
+  );
+
+  // Seed data on the singleton — OCC reads from here
+  queryClient.setQueryData(userKeys.detail(1), { data: {}, version: 5 });
+
+  await act(() => result.current.mutateAsync({ id: 1, body: {} }));
+  // invalidation also hits the singleton — consistent
 });
 ```
 
@@ -150,7 +226,7 @@ meta: {
 Consumers wire UX in their `createQueryClient` callbacks:
 
 ```ts
-const queryClient = createQueryClient({
+export const queryClient = createQueryClient({
   onQuerySuccess: (_data, query) => {
     if (query.meta?.showSuccess) toast.success(query.meta.customSuccessMessage ?? 'Loaded');
   },
@@ -162,6 +238,76 @@ const queryClient = createQueryClient({
 
 This is deliberate. The toolkit doesn't know whether you use Sonner,
 Mantine, your own `<Snackbar>`, or `console.warn` for failures. You decide.
+
+## `queryInvalidator` and `getQueryInvalidator`
+
+Both give access to the `QueryInvalidator` bound to the singleton. They differ
+only in when the singleton lookup occurs.
+
+**`queryInvalidator`** is a stable proxy — safe to capture at module scope.
+The lookup happens when you call a method, not when the module loads:
+
+```ts
+import { queryInvalidator } from '@quilla-fe-kit/api-client-react-query';
+import { userKeys } from '@/lib/api';
+
+// Safe at module scope — no singleton lookup until the handler fires
+socket.on('user:updated', () =>
+  queryInvalidator.invalidate([userKeys.lists(), userKeys.detail(id)])
+);
+```
+
+**`getQueryInvalidator()`** returns the invalidator directly. Use it when you
+need to pass the reference to a function or store it locally within a
+function body:
+
+```ts
+import { getQueryInvalidator } from '@quilla-fe-kit/api-client-react-query';
+
+function buildLogoutHandler() {
+  const inv = getQueryInvalidator(); // inside a function — safe
+  return async () => {
+    await authClient.signOut();
+    inv.clear();
+    router.replace('/login');
+  };
+}
+```
+
+Both throw with a clear message if called before `createQueryClient`.
+
+### `invalidate(keys)`
+
+Accepts `QueryKey[]` and fires all invalidations in parallel. The mutation
+hooks (`usePostMutationBase` etc.) call this internally for their `invalidate`
+option — call it directly only for imperative cases **outside** the mutation
+lifecycle: WebSocket events, polling results, cross-domain side effects.
+
+```ts
+// After a polling tick resolves a background job
+await pollUntilDone(jobId);
+queryInvalidator.invalidate([jobKeys.detail(jobId)]);
+```
+
+### `clear()`
+
+Drops the entire query cache. Suited for logout flows or hard session resets:
+
+```ts
+async function logout() {
+  await authClient.signOut();
+  queryInvalidator.clear();
+  router.replace('/login');
+}
+```
+
+### Why not `useQueryClient()`
+
+`useQueryClient()` resolves the nearest `QueryClientProvider` in the React
+tree. A second provider — common in test wrappers, nested islands, or
+micro-frontend roots — silently returns a different instance. The singleton
+accessors always return the same object bound at `createQueryClient` time,
+usable inside or outside React with no provider dependency.
 
 ## `createHooks`
 
@@ -318,9 +464,9 @@ React Query invalidates everything whose key starts with the given prefix:
 
 | Invalidate call | Keys cleared |
 |---|---|
-| `queryClient.invalidateQueries({ queryKey: userKeys.all() })` | every user query |
-| `queryClient.invalidateQueries({ queryKey: userKeys.lists() })` | all list queries |
-| `queryClient.invalidateQueries({ queryKey: userKeys.detail(42) })` | one detail entry |
+| `queryInvalidator.invalidate([userKeys.all()])` | every user query |
+| `queryInvalidator.invalidate([userKeys.lists()])` | all list queries |
+| `queryInvalidator.invalidate([userKeys.detail(42)])` | one detail entry |
 
 `lists()` is the right invalidation target after a create or delete; `detail(id)`
 after an update.
@@ -346,8 +492,8 @@ const { data } = useQueryBase<RawUser>(
 ## `invalidate` option on mutation hooks
 
 All four mutation hooks accept an `invalidate` option that calls
-`queryClient.invalidateQueries` automatically on success, before any
-consumer `onSuccess` callback runs.
+`queryInvalidator.invalidate()` automatically on success, before the
+per-hook `onSuccess` callback runs.
 
 Pass a static array of keys, or a function that receives the mutation
 variables and response data:
@@ -371,9 +517,18 @@ const remove = useDeleteMutationBase<void, { id: number }>('/users', {
 });
 ```
 
-The invalidations are `await`-ed before `onSuccess` fires, so the cache is
-already fresh by the time your callback runs. If you provide both `invalidate`
-and `onSuccess`, they compose: invalidations happen first, then your callback.
+The invalidations are `await`-ed before the per-hook `onSuccess` fires, so
+the cache is already fresh by the time your callback runs. If you provide
+both `invalidate` and `onSuccess`, they compose: invalidations happen first,
+then your callback.
+
+Note: the global `onMutationSuccess` callback in `createQueryClient` fires
+**before** invalidation — it is intended for global UX concerns (toasts,
+logging) only. See [Constraints and known limitations](#onmutationsuccess-fires-before-cache-invalidation).
+
+Internally the hooks call `queryInvalidator.invalidate()` — the same
+singleton bound at `createQueryClient` time. No React context is involved
+in the invalidation path.
 
 ### Type
 
@@ -414,8 +569,9 @@ useDeleteMutationBase<void, { id: number }>('/users', {
 });
 ```
 
-The `buildOCCHeaders(queryClient, resolver, vars)` helper is also exported
-if you need to compose your own mutation hooks.
+The `buildOCCHeaders(resolver, vars)` helper is also exported if you need
+to compose your own mutation hooks. It reads the version from the singleton
+cache internally — no `QueryClient` argument needed.
 
 ## `useDebouncedValue`
 
@@ -430,9 +586,13 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ## API surface
 
-### Factories
+### Factories and accessors
 - `createHooks(httpClient)` → `Hooks`
-- `createQueryClient(config)`
+- `createQueryClient(config)` → `QueryClient` _(throws on second call — singleton guard)_
+- `getQueryClient()` → `QueryClient` _(throws if called before `createQueryClient`)_
+- `queryInvalidator` — stable proxy; safe to import at module scope
+- `getQueryInvalidator()` → `QueryInvalidator` _(throws if called before `createQueryClient`)_
+- `resetQueryClient()` — clears the singleton guard; use in `beforeEach` in tests
 - `createQueryKeys(domain)` → `QueryKeyFactory`
 
 ### Hooks (returned by `createHooks`, destructure and import by name)
@@ -443,14 +603,94 @@ const debounced = useDebouncedValue(searchInput, 500);
 - `useDeleteMutationBase<TData?, TVars?, TError?>(basePath, options?)`
 
 ### Helpers
-- `buildOCCHeaders(queryClient, resolver, vars)` — for custom mutations
+- `buildOCCHeaders(resolver, vars)` — for custom mutations; reads from the singleton cache
 
 ### Types
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
+- `QueryInvalidator`
 - `CreateQueryClientConfig`, plus the four event-handler aliases
 - `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`
 - `QueryKeyFactory`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
+
+## Constraints and known limitations
+
+### CSR / SPA only
+
+The singleton `QueryClient` is safe because a browser process serves exactly
+one user. It is **not** safe for server-side rendering, where a Node.js
+process handles concurrent requests and a shared singleton would leak one
+user's cache into another user's response.
+
+If your app uses Next.js App Router, Remix, or any other SSR framework that
+runs React Query on the server, do not use this package's singleton — create
+`QueryClient` instances directly with `new QueryClient()` per request as
+React Query's own SSR guide recommends.
+
+The rest of this package (auth, token storage, `HttpClient`) is also built
+around browser primitives (localStorage, cookies, token refresh), so the
+CSR-only constraint is shared across the whole `@quilla-fe-kit` surface.
+
+### One React root per process
+
+The singleton guard allows exactly one `QueryClient` per JS module scope.
+Two independently mounted React roots in the same page sharing the same
+bundle would fight over the singleton — the second call to `createQueryClient`
+throws. If your architecture requires two independent caches in the same
+page, use Webpack or Vite module federation (each federated unit gets its
+own module scope and its own singleton), or create `QueryClient` instances
+directly without the factory.
+
+### Vite HMR — hot-reloading the api layer
+
+When Vite hot-replaces `lib/api.ts`, the module is re-evaluated and
+`createQueryClient` runs again. If the factory module is not also replaced,
+`_instance` is still set from the previous run and the second call throws.
+
+Add a Vite HMR disposal hook to `lib/api.ts` to clear the guard before the
+module is replaced:
+
+```ts
+export const queryClient = createQueryClient({ ... });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => resetQueryClient());
+}
+```
+
+For Webpack, the equivalent is:
+```ts
+if (module.hot) {
+  module.hot.dispose(() => resetQueryClient());
+}
+```
+
+### `onMutationSuccess` fires before cache invalidation
+
+The `onMutationSuccess` callback in `createQueryClient` is a
+`MutationCache`-level handler. It fires in this order:
+
+1. HTTP response received
+2. `onMutationSuccess` ← fires here
+3. `buildMutationOnSuccess` → `queryInvalidator.invalidate()` ← fires here
+
+This means `onMutationSuccess` is not the right place for side effects that
+depend on fresh cache data — the cache is still stale when it runs. Use the
+`onSuccess` option on individual mutation hooks instead; it runs **after**
+invalidation completes.
+
+```ts
+// onMutationSuccess: global UX only (toasts, logging) — cache is still stale
+createQueryClient({
+  onMutationSuccess: () => toast.success('Saved'), // fine
+});
+
+// onSuccess per-hook: runs after invalidation — cache is fresh
+hooks.usePutMutationBase('/users', {
+  invalidate: ({ id }) => [userKeys.detail(id)],
+  onSuccess: () => router.push('/users'), // safe — cache already refreshed
+});
+```
 
 ## Module augmentation
 

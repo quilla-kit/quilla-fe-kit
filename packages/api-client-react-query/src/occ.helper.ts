@@ -4,7 +4,8 @@ import {
   OCC_HEADER,
   type OCCToken,
 } from '@quilla-fe-kit/api-client';
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { QueryKey } from '@tanstack/react-query';
+import { getQueryClient } from './query-client.factory.js';
 import type { QueryBaseResult } from './query-base-result.type.js';
 
 export type VersionResolver<TVars> = {
@@ -19,13 +20,12 @@ const defaultExtractVersion = (cached: unknown): OCCToken | null => {
 };
 
 export const buildOCCHeaders = <TVars>(
-  queryClient: QueryClient,
   resolver: VersionResolver<TVars> | undefined,
   vars: TVars,
 ): HttpHeaders | undefined => {
   if (!resolver) return undefined;
   const key = resolver.versionKey(vars);
-  const cached = queryClient.getQueryData(key);
+  const cached = getQueryClient().getQueryData(key);
   const extract = resolver.extractVersion ?? defaultExtractVersion;
   const version = extract(cached);
   if (version === null || version === undefined) {
