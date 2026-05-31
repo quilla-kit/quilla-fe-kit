@@ -1,5 +1,5 @@
 import type { HttpClient, HttpHeaders, HttpRequestBody } from '@quilla-fe-kit/api-client';
-import { useMutation, type UseMutationOptions, useQueryClient } from '@tanstack/react-query';
+import { useMutation, type UseMutationOptions } from '@tanstack/react-query';
 import { buildMutationOnSuccess, type InvalidateKeys } from './mutation.type.js';
 
 export type UsePostMutationOptions<TData, TVars, TError> = Omit<
@@ -16,7 +16,6 @@ export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
   url: string,
   options: UsePostMutationOptions<TData, TVars, TError> = {},
 ) => {
-  const queryClient = useQueryClient();
   const { headers, disabledAuth, invalidate, onSuccess: userOnSuccess, ...rest } = options;
 
   return useMutation<TData, TError, TVars>({
@@ -31,6 +30,6 @@ export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
       return response.data;
     },
     ...rest,
-    ...buildMutationOnSuccess(queryClient, invalidate, userOnSuccess),
+    ...buildMutationOnSuccess(invalidate, userOnSuccess),
   });
 };

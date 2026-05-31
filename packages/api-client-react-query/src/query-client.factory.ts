@@ -15,6 +15,7 @@ import {
   QueryCache,
   QueryClient,
 } from '@tanstack/react-query';
+import { createQueryInvalidator, type QueryInvalidator } from './query-invalidator.factory.js';
 
 const NON_RETRYABLE = [
   UnauthorizedError,
@@ -48,7 +49,36 @@ export type CreateQueryClientConfig = {
   };
 };
 
+type Instance = {
+  readonly queryClient: QueryClient;
+  readonly queryInvalidator: QueryInvalidator;
+};
+
+let _instance: Instance | null = null;
+
+function assertInstance(caller: string): asserts _instance is Instance {
+  if (_instance === null) {
+    throw new Error(
+      `[quilla-fe-kit] ${caller} called before createQueryClient. ` +
+        `Call createQueryClient once in your api layer before using ${caller}.`,
+    );
+  }
+}
+
 export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryClient => {
+  if (typeof window === 'undefined') {
+    throw new Error(
+      '[quilla-fe-kit] createQueryClient is CSR/SPA only. ' +
+        'In SSR environments, construct QueryClient per request directly.',
+    );
+  }
+  if (_instance !== null) {
+    throw new Error(
+      '[quilla-fe-kit] createQueryClient was already called. ' +
+        'Call resetQueryClient() between test runs to obtain a fresh instance.',
+    );
+  }
+
   const maxAttempts = config.retry?.maxAttempts ?? 2;
   const networkMaxAttempts = config.retry?.networkMaxAttempts ?? 1;
 
@@ -71,7 +101,7 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
       : {}),
   });
 
-  return new QueryClient({
+  const queryClient = new QueryClient({
     queryCache,
     mutationCache,
     defaultOptions: {
@@ -88,4 +118,26 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
       },
     },
   });
+
+  _instance = { queryClient, queryInvalidator: createQueryInvalidator(queryClient) };
+  return queryClient;
+};
+
+export const getQueryClient = (): QueryClient => {
+  assertInstance('getQueryClient');
+  return _instance.queryClient;
+};
+
+export const getQueryInvalidator = (): QueryInvalidator => {
+  assertInstance('getQueryInvalidator');
+  return _instance.queryInvalidator;
+};
+
+export const queryInvalidator: QueryInvalidator = {
+  invalidate: async (keys) => getQueryInvalidator().invalidate(keys),
+  clear: () => getQueryInvalidator().clear(),
+};
+
+export const resetQueryClient = (): void => {
+  _instance = null;
 };

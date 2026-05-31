@@ -2,12 +2,18 @@ export { createHooks, type Hooks } from './hooks.factory.js';
 
 export {
   createQueryClient,
+  getQueryClient,
+  getQueryInvalidator,
+  queryInvalidator,
+  resetQueryClient,
   type CreateQueryClientConfig,
   type QueryEventHandler,
   type QuerySuccessHandler,
   type MutationEventHandler,
   type MutationSuccessHandler,
 } from './query-client.factory.js';
+
+export { type QueryInvalidator } from './query-invalidator.factory.js';
 
 export type { QueryBaseResult } from './query-base-result.type.js';
 export {
