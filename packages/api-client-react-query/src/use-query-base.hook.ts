@@ -1,11 +1,11 @@
 import {
+  type HttpClient,
   type HttpHeaders,
   type HttpQueryParams,
   parseETagHeaderValue,
 } from '@quilla-fe-kit/api-client';
 import { type QueryKey, useQuery, type UseQueryOptions } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { useHttpClient } from './http-client.provider.js';
 import type { QueryBaseResult } from './query-base-result.type.js';
 import { useDebouncedValue } from './use-debounced-value.hook.js';
 
@@ -38,11 +38,11 @@ export type UseQueryBaseOptions<TRaw, TModel = TRaw, TError = Error> = Omit<
 };
 
 export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
+  client: HttpClient,
   baseKey: QueryKey,
   url: string,
   options: UseQueryBaseOptions<TRaw, TModel, TError> = {},
 ) => {
-  const client = useHttpClient();
   const {
     mapper,
     query: rawQuery = {},

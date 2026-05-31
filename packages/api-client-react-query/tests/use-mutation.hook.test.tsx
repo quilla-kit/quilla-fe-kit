@@ -1,10 +1,7 @@
 import { OCC_HEADER } from '@quilla-fe-kit/api-client';
 import { act, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { useDeleteMutationBase } from '../src/use-delete-mutation.hook.js';
-import { usePatchMutationBase } from '../src/use-patch-mutation.hook.js';
-import { usePostMutationBase } from '../src/use-post-mutation.hook.js';
-import { usePutMutationBase } from '../src/use-put-mutation.hook.js';
+import { createHooks } from '../src/hooks.factory.js';
 import { createFakeHttpClient, renderHookWithProviders } from './helpers/render.helper.js';
 
 describe('usePostMutationBase', () => {
@@ -14,10 +11,10 @@ describe('usePostMutationBase', () => {
       headers: {},
       data: { id: 'new' },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePostMutationBase<{ id: string }, { name: string }>('/users'),
-      { httpClient: client },
+      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     let resolved: { id: string } | undefined;
@@ -37,10 +34,10 @@ describe('usePostMutationBase', () => {
       headers: {},
       data: undefined,
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePostMutationBase<void, { token: string }>('/login', { disabledAuth: true }),
-      { httpClient: client },
+      () => hooks.usePostMutationBase<void, { token: string }>('/login', { disabledAuth: true }),
     );
 
     await act(async () => {
@@ -58,10 +55,10 @@ describe('usePutMutationBase', () => {
       headers: {},
       data: { ok: true },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePutMutationBase<{ ok: boolean }, { name: string }>('/users'),
-      { httpClient: client },
+      () => hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users'),
     );
 
     await act(async () => {
@@ -80,13 +77,13 @@ describe('usePutMutationBase', () => {
       headers: {},
       data: { ok: true },
     }));
+    const hooks = createHooks(client);
 
     const { result, queryClient } = renderHookWithProviders(
       () =>
-        usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+        hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
-      { httpClient: client },
     );
     queryClient.setQueryData(['users', 5], { data: { id: 5 }, version: 11 });
 
@@ -103,13 +100,13 @@ describe('usePutMutationBase', () => {
       headers: {},
       data: { ok: true },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
       () =>
-        usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+        hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
-      { httpClient: client },
     );
 
     await act(async () => {
@@ -127,10 +124,10 @@ describe('usePatchMutationBase', () => {
       headers: {},
       data: undefined,
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePatchMutationBase<void, { name: string }>('/users'),
-      { httpClient: client },
+      () => hooks.usePatchMutationBase<void, { name: string }>('/users'),
     );
 
     await act(async () => {
@@ -146,10 +143,10 @@ describe('usePatchMutationBase', () => {
       headers: {},
       data: undefined,
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePatchMutationBase<void, { name: string }>('/orgs/:id/seats'),
-      { httpClient: client },
+      () => hooks.usePatchMutationBase<void, { name: string }>('/orgs/:id/seats'),
     );
 
     await act(async () => {
@@ -167,10 +164,10 @@ describe('useDeleteMutationBase', () => {
       headers: {},
       data: undefined,
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => useDeleteMutationBase<void, string>('/users'),
-      { httpClient: client },
+      () => hooks.useDeleteMutationBase<void, string>('/users'),
     );
 
     await act(async () => {
@@ -187,13 +184,13 @@ describe('useDeleteMutationBase', () => {
       headers: {},
       data: undefined,
     }));
+    const hooks = createHooks(client);
 
     const { result, queryClient } = renderHookWithProviders(
       () =>
-        useDeleteMutationBase<void, { id: number }>('/users', {
+        hooks.useDeleteMutationBase<void, { id: number }>('/users', {
           occ: { versionKey: ({ id }) => ['users', id] },
         }),
-      { httpClient: client },
     );
     queryClient.setQueryData(['users', 3], { data: { id: 3 }, version: 4 });
 
@@ -213,10 +210,10 @@ describe('mutations — invalidate-on-success integration smoke', () => {
       headers: {},
       data: { id: 'created' },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => usePostMutationBase<{ id: string }, { name: string }>('/users'),
-      { httpClient: client },
+      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     await act(async () => {
