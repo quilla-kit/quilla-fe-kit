@@ -2,16 +2,18 @@
 
 React Query adapter for [`@quilla-fe-kit/api-client`](../api-client):
 
+- **`createHooks(httpClient)`** — binds all hooks to an `HttpClient` instance.
+  The client is an infrastructure detail: it never leaks into the component tree.
 - **`createQueryClient(config)`** — typed-error retry policy, optional
   callback hooks for global UX (no toast lib coupling).
-- **`HttpClientProvider` + `useHttpClient`** — context that surfaces the
-  `HttpClient` to every hook in the tree.
 - **`useQueryBase`** — wraps `useQuery` with debounced search filters,
   pagination + sort state, stable cache keys, and ETag-based version
   extraction.
 - **`usePostMutationBase` / `usePutMutationBase` / `usePatchMutationBase` /
   `useDeleteMutationBase`** — HTTP-method-specific mutation helpers with
-  explicit OCC `versionKey` resolution.
+  explicit OCC `versionKey` resolution and built-in cache invalidation.
+- **`createQueryKeys(domain)`** — standardized query key factory for
+  prefix-based cache invalidation.
 - **Query meta module augmentation** — declarative `meta: { showSuccess }`
   routed via your callbacks. The package never imports a toast library.
 
@@ -32,21 +34,35 @@ Query version it wants — the adapter doesn't ship a duplicate.
 
 ## Quick start
 
-```tsx
+```ts
+// lib/api.ts — configure once, outside the component tree
 import { createHttpClient } from '@quilla-fe-kit/api-client';
-import {
-  HttpClientProvider,
-  createQueryClient,
-} from '@quilla-fe-kit/api-client-react-query';
+import { createHooks, createQueryKeys } from '@quilla-fe-kit/api-client-react-query';
 import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
-import { QueryClientProvider } from '@tanstack/react-query';
 
-// 1. Configure once, at the app composition root.
 const httpClient = createHttpClient({
   baseUrl: 'https://api.example.com',
   storage: localStorageTokenStorage(),
   refreshEndpoint: async (refreshToken) => { /* ... */ },
 });
+
+// Destructure so hooks are imported by name, same as any other hook.
+// The HttpClient never touches React context — it's bound here, at module level.
+export const {
+  useQueryBase,
+  usePostMutationBase,
+  usePutMutationBase,
+  usePatchMutationBase,
+  useDeleteMutationBase,
+} = createHooks(httpClient);
+
+export const userKeys = createQueryKeys('users');
+```
+
+```tsx
+// app.tsx — wire up React Query's own cache provider
+import { createQueryClient } from '@quilla-fe-kit/api-client-react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = createQueryClient({
   onQueryError: (err) => myToast.error(err.message),
@@ -55,22 +71,22 @@ const queryClient = createQueryClient({
   },
 });
 
-// 2. Wrap your tree.
 export const App = () => (
   <QueryClientProvider client={queryClient}>
-    <HttpClientProvider client={httpClient}>
-      <Routes />
-    </HttpClientProvider>
+    <Routes />
   </QueryClientProvider>
 );
+```
 
-// 3. Use the hooks.
-import { useQueryBase, usePutMutationBase } from '@quilla-fe-kit/api-client-react-query';
+```tsx
+// UserProfile.tsx — hooks look and feel like any other hook
+import { useQueryBase, usePutMutationBase, userKeys } from '@/lib/api';
 
 const UserProfile = ({ id }: { id: number }) => {
-  const { data, isLoading } = useQueryBase<User>(['users', id], `/users/${id}`);
+  const { data, isLoading } = useQueryBase<User>(userKeys.detail(id), `/users/${id}`);
   const updateUser = usePutMutationBase<User, UpdateUserBody>('/users', {
-    occ: { versionKey: ({ id }) => ['users', id] },
+    occ: { versionKey: ({ id }) => userKeys.detail(id) },
+    invalidate: ({ id }) => [userKeys.detail(id), userKeys.lists()],
   });
 
   if (isLoading) return <Spinner />;
@@ -147,22 +163,47 @@ const queryClient = createQueryClient({
 This is deliberate. The toolkit doesn't know whether you use Sonner,
 Mantine, your own `<Snackbar>`, or `console.warn` for failures. You decide.
 
-## `HttpClientProvider` + `useHttpClient`
+## `createHooks`
 
-Surfaces a single `HttpClient` to every hook in the tree. `useHttpClient()`
-throws if no provider is found — fail-fast wiring.
+Binds all hooks to an `HttpClient` instance at module level, outside React.
+The `HttpClient` is an infrastructure detail — it is never accessible through
+the component tree, so no component can make raw HTTP calls by accident.
 
-```tsx
-<HttpClientProvider client={httpClient}>
-  <App />
-</HttpClientProvider>
+Destructure the returned object so each hook is exported by name and imported
+like any other hook — no dot-access, no new API to learn:
 
-// In any descendant
-const client = useHttpClient(); // typed as HttpClient
+```ts
+// lib/api.ts
+import { createHttpClient } from '@quilla-fe-kit/api-client';
+import { createHooks } from '@quilla-fe-kit/api-client-react-query';
+
+const httpClient = createHttpClient({ baseUrl: '/api', ... });
+
+export const {
+  useQueryBase,
+  usePostMutationBase,
+  usePutMutationBase,
+  usePatchMutationBase,
+  useDeleteMutationBase,
+} = createHooks(httpClient);
 ```
 
-Multiple clients can be supported by nesting providers, but each subtree
-only sees one. Most apps want one provider at the root.
+```tsx
+// In any component
+import { useQueryBase } from '@/lib/api';
+
+const { data } = useQueryBase(['users'], '/users');
+```
+
+Apps with multiple backends create multiple `createHooks(...)` instances and
+export them from different modules — no React context nesting needed. The
+`Hooks` type (exported) is available if you need to type a custom hook factory:
+
+```ts
+import type { Hooks } from '@quilla-fe-kit/api-client-react-query';
+
+function createDomainHooks(base: Hooks) { ... }
+```
 
 ## `useQueryBase`
 
@@ -222,7 +263,7 @@ const login = usePostMutationBase<TokenPair, LoginBody>('/auth/login', {
 
 ```ts
 const replace = usePutMutationBase<User, UpdateUserBody>('/users', {
-  occ: { versionKey: ({ id }) => ['users', id] },
+  occ: { versionKey: ({ id }) => userKeys.detail(id) },
 });
 replace.mutate({ id: userId, body: { name: 'Ada' } });
 // → PUT /users/{id} with If-Match: "<version>" pulled from cache
@@ -251,9 +292,95 @@ remove.mutate('user-1');
 
 // ...or { id, body? } for OCC
 const safeRemove = useDeleteMutationBase<void, { id: number }>('/users', {
-  occ: { versionKey: ({ id }) => ['users', id] },
+  occ: { versionKey: ({ id }) => userKeys.detail(id) },
 });
 safeRemove.mutate({ id: 1 });
+```
+
+## `createQueryKeys`
+
+`createQueryKeys(domain)` returns a typed factory that produces a consistent
+key hierarchy for a domain. Pass the returned keys to `useQueryBase` as
+`baseKey` and to `invalidate` on mutation hooks.
+
+```ts
+const userKeys = createQueryKeys('users');
+
+userKeys.all()            // ['users']
+userKeys.lists()          // ['users', 'list']
+userKeys.list({ page: 2 }) // ['users', 'list', { page: 2 }]
+userKeys.detail(42)       // ['users', 'detail', 42]
+```
+
+### Key hierarchy and prefix matching
+
+React Query invalidates everything whose key starts with the given prefix:
+
+| Invalidate call | Keys cleared |
+|---|---|
+| `queryClient.invalidateQueries({ queryKey: userKeys.all() })` | every user query |
+| `queryClient.invalidateQueries({ queryKey: userKeys.lists() })` | all list queries |
+| `queryClient.invalidateQueries({ queryKey: userKeys.detail(42) })` | one detail entry |
+
+`lists()` is the right invalidation target after a create or delete; `detail(id)`
+after an update.
+
+A note on `list(params?)`: it returns a 3-tuple even without params —
+`['users', 'list', undefined]`. This makes it useful for exact-key targeting
+(e.g. passing to `useQueryBase` directly), but it **does not** prefix-match
+`lists()` — use `lists()` for broad list invalidation.
+
+### Wiring with `useQueryBase`
+
+Pass the factory key as `baseKey`; `useQueryBase` appends the normalized
+params itself, so cache entries land at `['users', 'list', { ... }]`:
+
+```ts
+const { data } = useQueryBase<RawUser>(
+  userKeys.lists(),   // → ['users', 'list', <params>] in cache
+  '/users',
+  { query: { filter: { status: 'active' } } },
+);
+```
+
+## `invalidate` option on mutation hooks
+
+All four mutation hooks accept an `invalidate` option that calls
+`queryClient.invalidateQueries` automatically on success, before any
+consumer `onSuccess` callback runs.
+
+Pass a static array of keys, or a function that receives the mutation
+variables and response data:
+
+```ts
+// Static — always invalidate the list after creating a user
+const create = usePostMutationBase<User, CreateUserBody>('/users', {
+  invalidate: [userKeys.lists()],
+});
+
+// Dynamic — invalidate the detail AND the list after updating
+const update = usePutMutationBase<User, UpdateUserBody>('/users', {
+  occ: { versionKey: ({ id }) => userKeys.detail(id) },
+  invalidate: ({ id }) => [userKeys.detail(id), userKeys.lists()],
+});
+
+// Multiple static targets
+const remove = useDeleteMutationBase<void, { id: number }>('/users', {
+  occ: { versionKey: ({ id }) => userKeys.detail(id) },
+  invalidate: [userKeys.lists(), userKeys.all()],
+});
+```
+
+The invalidations are `await`-ed before `onSuccess` fires, so the cache is
+already fresh by the time your callback runs. If you provide both `invalidate`
+and `onSuccess`, they compose: invalidations happen first, then your callback.
+
+### Type
+
+```ts
+type InvalidateKeys<TVars, TData> =
+  | QueryKey[]                              // static list of keys
+  | ((vars: TVars, data: TData) => QueryKey[]); // dynamic resolver
 ```
 
 ## OCC: how `versionKey` works
@@ -281,7 +408,7 @@ For non-`useQueryBase` cache shapes, override the extractor:
 ```ts
 useDeleteMutationBase<void, { id: number }>('/users', {
   occ: {
-    versionKey: ({ id }) => ['users', id],
+    versionKey: ({ id }) => userKeys.detail(id),
     extractVersion: (cached) => (cached as { rev: number } | undefined)?.rev ?? null,
   },
 });
@@ -292,8 +419,8 @@ if you need to compose your own mutation hooks.
 
 ## `useDebouncedValue`
 
-Re-exported because it's small and useful. Pure utility — no React Query
-or HTTP-client dependency.
+Pure utility — no React Query or HTTP-client dependency. Included in the
+`createHooks` return object and also exported as a direct named export.
 
 ```ts
 import { useDebouncedValue } from '@quilla-fe-kit/api-client-react-query';
@@ -303,17 +430,17 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ## API surface
 
-### Factory + provider
+### Factories
+- `createHooks(httpClient)` → `Hooks`
 - `createQueryClient(config)`
-- `HttpClientProvider`, `useHttpClient`
+- `createQueryKeys(domain)` → `QueryKeyFactory`
 
-### Hooks
+### Hooks (returned by `createHooks`, destructure and import by name)
 - `useQueryBase<TRaw, TModel?, TError?>(baseKey, url, options?)`
 - `usePostMutationBase<TData, TVars?, TError?>(url, options?)`
 - `usePutMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `usePatchMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `useDeleteMutationBase<TData?, TVars?, TError?>(basePath, options?)`
-- `useDebouncedValue<T>(value, delayMs)`
 
 ### Helpers
 - `buildOCCHeaders(queryClient, resolver, vars)` — for custom mutations
@@ -321,7 +448,8 @@ const debounced = useDebouncedValue(searchInput, 500);
 ### Types
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
 - `CreateQueryClientConfig`, plus the four event-handler aliases
-- `IdAndBody<TBody>`, `VersionResolver<TVars>`
+- `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`
+- `QueryKeyFactory`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
 
 ## Module augmentation

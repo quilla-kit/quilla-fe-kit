@@ -2,7 +2,6 @@ import type { HttpClient, HttpRequest, HttpResponse } from '@quilla-fe-kit/api-c
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, type RenderHookOptions, type RenderHookResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { HttpClientProvider } from '../../src/http-client.provider.js';
 
 type AnyHttpResponse = HttpResponse<unknown>;
 type Responder = (config: HttpRequest) => AnyHttpResponse | Promise<AnyHttpResponse>;
@@ -27,25 +26,22 @@ export const newQueryClient = (): QueryClient =>
   });
 
 export type WrapperParams = {
-  readonly httpClient: HttpClient;
   readonly queryClient?: QueryClient;
 };
 
-export const buildWrapper = ({ httpClient, queryClient }: WrapperParams) => {
-  const qc = queryClient ?? newQueryClient();
+export const buildWrapper = (params: WrapperParams = {}) => {
+  const qc = params.queryClient ?? newQueryClient();
   return {
     queryClient: qc,
     Wrapper: ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={qc}>
-        <HttpClientProvider client={httpClient}>{children}</HttpClientProvider>
-      </QueryClientProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
     ),
   };
 };
 
 export const renderHookWithProviders = <Result, Props>(
   hook: (props: Props) => Result,
-  params: WrapperParams,
+  params: WrapperParams = {},
   options?: Omit<RenderHookOptions<Props>, 'wrapper'>,
 ): RenderHookResult<Result, Props> & { queryClient: QueryClient } => {
   const { queryClient, Wrapper } = buildWrapper(params);

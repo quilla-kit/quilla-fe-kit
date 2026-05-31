@@ -1,8 +1,39 @@
 import type { HttpHeaders } from '@quilla-fe-kit/api-client';
+import { type QueryClient, type QueryKey, type UseMutationOptions } from '@tanstack/react-query';
 
 export type IdAndBody<TBody> = {
   readonly id: string | number;
   readonly body?: TBody;
+};
+
+export type InvalidateKeys<TVars, TData> =
+  | QueryKey[]
+  | ((vars: TVars, data: TData) => QueryKey[]);
+
+export const resolveInvalidateKeys = <TVars, TData>(
+  invalidate: InvalidateKeys<TVars, TData>,
+  vars: TVars,
+  data: TData,
+): QueryKey[] => (typeof invalidate === 'function' ? invalidate(vars, data) : invalidate);
+
+export const buildMutationOnSuccess = <TData, TVars>(
+  queryClient: QueryClient,
+  invalidate: InvalidateKeys<TVars, TData> | undefined,
+  userOnSuccess: UseMutationOptions<TData, unknown, TVars>['onSuccess'] | undefined,
+): Pick<UseMutationOptions<TData, unknown, TVars>, 'onSuccess'> => {
+  if (invalidate === undefined && userOnSuccess === undefined) return {};
+  return {
+    onSuccess: async (data, vars, onMutateResult, context) => {
+      if (invalidate) {
+        await Promise.all(
+          resolveInvalidateKeys(invalidate, vars, data).map((key) =>
+            queryClient.invalidateQueries({ queryKey: key }),
+          ),
+        );
+      }
+      await userOnSuccess?.(data, vars, onMutateResult, context);
+    },
+  };
 };
 
 export const mergeMutationHeaders = (

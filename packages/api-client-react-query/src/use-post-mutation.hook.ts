@@ -1,6 +1,6 @@
-import type { HttpHeaders, HttpRequestBody } from '@quilla-fe-kit/api-client';
-import { useMutation, type UseMutationOptions } from '@tanstack/react-query';
-import { useHttpClient } from './http-client.provider.js';
+import type { HttpClient, HttpHeaders, HttpRequestBody } from '@quilla-fe-kit/api-client';
+import { useMutation, type UseMutationOptions, useQueryClient } from '@tanstack/react-query';
+import { buildMutationOnSuccess, type InvalidateKeys } from './mutation.type.js';
 
 export type UsePostMutationOptions<TData, TVars, TError> = Omit<
   UseMutationOptions<TData, TError, TVars>,
@@ -8,14 +8,16 @@ export type UsePostMutationOptions<TData, TVars, TError> = Omit<
 > & {
   readonly headers?: HttpHeaders;
   readonly disabledAuth?: boolean;
+  readonly invalidate?: InvalidateKeys<TVars, TData>;
 };
 
 export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
+  client: HttpClient,
   url: string,
   options: UsePostMutationOptions<TData, TVars, TError> = {},
 ) => {
-  const client = useHttpClient();
-  const { headers, disabledAuth, ...rest } = options;
+  const queryClient = useQueryClient();
+  const { headers, disabledAuth, invalidate, onSuccess: userOnSuccess, ...rest } = options;
 
   return useMutation<TData, TError, TVars>({
     mutationFn: async (vars) => {
@@ -29,5 +31,6 @@ export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
       return response.data;
     },
     ...rest,
+    ...buildMutationOnSuccess(queryClient, invalidate, userOnSuccess),
   });
 };

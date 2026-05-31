@@ -1,8 +1,5 @@
-export {
-  HttpClientProvider,
-  useHttpClient,
-  type HttpClientProviderProps,
-} from './http-client.provider.js';
+export { createHooks, type Hooks } from './hooks.factory.js';
+
 export {
   createQueryClient,
   type CreateQueryClientConfig,
@@ -14,7 +11,6 @@ export {
 
 export type { QueryBaseResult } from './query-base-result.type.js';
 export {
-  useQueryBase,
   type QueryBaseInput,
   type QueryBaseTuning,
   type UseQueryBaseOptions,
@@ -22,20 +18,13 @@ export {
 export { useDebouncedValue } from './use-debounced-value.hook.js';
 
 export { buildOCCHeaders, type VersionResolver } from './occ.helper.js';
-export type { IdAndBody } from './mutation.type.js';
+export type { IdAndBody, InvalidateKeys } from './mutation.type.js';
+export { type UsePostMutationOptions } from './use-post-mutation.hook.js';
+export { type UsePutMutationOptions } from './use-put-mutation.hook.js';
+export { type UsePatchMutationOptions } from './use-patch-mutation.hook.js';
+export { type UseDeleteMutationOptions } from './use-delete-mutation.hook.js';
+
 export {
-  usePostMutationBase,
-  type UsePostMutationOptions,
-} from './use-post-mutation.hook.js';
-export {
-  usePutMutationBase,
-  type UsePutMutationOptions,
-} from './use-put-mutation.hook.js';
-export {
-  usePatchMutationBase,
-  type UsePatchMutationOptions,
-} from './use-patch-mutation.hook.js';
-export {
-  useDeleteMutationBase,
-  type UseDeleteMutationOptions,
-} from './use-delete-mutation.hook.js';
+  createQueryKeys,
+  type QueryKeyFactory,
+} from './query-keys.factory.js';

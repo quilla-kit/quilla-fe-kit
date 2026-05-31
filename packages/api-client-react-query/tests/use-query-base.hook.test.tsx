@@ -1,6 +1,6 @@
 import { waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { useQueryBase } from '../src/use-query-base.hook.js';
+import { createHooks } from '../src/hooks.factory.js';
 import { createFakeHttpClient, renderHookWithProviders } from './helpers/render.helper.js';
 
 describe('useQueryBase — basic fetch', () => {
@@ -10,10 +10,10 @@ describe('useQueryBase — basic fetch', () => {
       headers: { etag: '"7"' },
       data: { name: 'Ada' },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => useQueryBase<{ name: string }>(['users', 1], '/users/1'),
-      { httpClient: client },
+      () => hooks.useQueryBase<{ name: string }>(['users', 1], '/users/1'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -30,10 +30,10 @@ describe('useQueryBase — basic fetch', () => {
         pagination: { page: 1, limit: 20, total: 2 },
       },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => useQueryBase<{ id: number }[]>(['users'], '/users'),
-      { httpClient: client },
+      () => hooks.useQueryBase<{ id: number }[]>(['users'], '/users'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -47,13 +47,13 @@ describe('useQueryBase — basic fetch', () => {
       headers: {},
       data: { name: 'ada' },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
       () =>
-        useQueryBase<{ name: string }, { name: string; upper: string }>(['u'], '/u', {
+        hooks.useQueryBase<{ name: string }, { name: string; upper: string }>(['u'], '/u', {
           mapper: (raw) => ({ name: raw.name, upper: raw.name.toUpperCase() }),
         }),
-      { httpClient: client },
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -66,10 +66,10 @@ describe('useQueryBase — basic fetch', () => {
       headers: {},
       data: { name: 'Ada' },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
-      () => useQueryBase<{ name: string }>(['users', 2], '/users/2'),
-      { httpClient: client },
+      () => hooks.useQueryBase<{ name: string }>(['users', 2], '/users/2'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -84,10 +84,11 @@ describe('useQueryBase — query params + cache key stability', () => {
       headers: {},
       data: { data: [], pagination: { page: 1, limit: 20, total: 0 } },
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
       () =>
-        useQueryBase(['users'], '/users', {
+        hooks.useQueryBase(['users'], '/users', {
           query: {
             search: { name: 'ada' },
             filter: { status: 'active' },
@@ -97,7 +98,6 @@ describe('useQueryBase — query params + cache key stability', () => {
           },
           tuning: { debounceMs: 0, minSearchLength: 1 },
         }),
-      { httpClient: client },
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -117,17 +117,16 @@ describe('useQueryBase — query params + cache key stability', () => {
       headers: {},
       data: {},
     }));
+    const hooks = createHooks(client);
 
     const { result } = renderHookWithProviders(
       () =>
-        useQueryBase(['users'], '/users', {
+        hooks.useQueryBase(['users'], '/users', {
           query: { search: { name: 'a' } },
           tuning: { debounceMs: 0, minSearchLength: 3 },
         }),
-      { httpClient: client },
     );
 
-    // Give react-query a tick to settle. If query were enabled, we'd see a call.
     await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
     expect(calls).toHaveLength(0);
   });
