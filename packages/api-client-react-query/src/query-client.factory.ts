@@ -56,13 +56,14 @@ type Instance = {
 
 let _instance: Instance | null = null;
 
-function assertInstance(caller: string): asserts _instance is Instance {
+function getInstance(caller: string): Instance {
   if (_instance === null) {
     throw new Error(
       `[quilla-fe-kit] ${caller} called before createQueryClient. ` +
         `Call createQueryClient once in your api layer before using ${caller}.`,
     );
   }
+  return _instance;
 }
 
 export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryClient => {
@@ -123,15 +124,9 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
   return queryClient;
 };
 
-export const getQueryClient = (): QueryClient => {
-  assertInstance('getQueryClient');
-  return _instance.queryClient;
-};
+export const getQueryClient = (): QueryClient => getInstance('getQueryClient').queryClient;
 
-export const getQueryInvalidator = (): QueryInvalidator => {
-  assertInstance('getQueryInvalidator');
-  return _instance.queryInvalidator;
-};
+export const getQueryInvalidator = (): QueryInvalidator => getInstance('getQueryInvalidator').queryInvalidator;
 
 export const queryInvalidator: QueryInvalidator = {
   invalidate: async (keys) => getQueryInvalidator().invalidate(keys),
