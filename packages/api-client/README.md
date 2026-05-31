@@ -175,6 +175,66 @@ const client = createHttpClient({
 });
 ```
 
+## Handling errors
+
+All errors thrown by the client extend `QuillaFeError` from
+`@quilla-fe-kit/errors`. Use `instanceof` to narrow to a specific class:
+
+```ts
+import {
+  NetworkError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+  BusinessRuleError,
+  ConflictError,
+} from '@quilla-fe-kit/errors';
+
+try {
+  const user = await client.request<User>({ url: '/users/42' });
+} catch (e) {
+  if (e instanceof NetworkError) {
+    // transport failure — offline, timeout, abort
+  } else if (e instanceof NotFoundError) {
+    // 404
+  } else if (e instanceof UnauthorizedError) {
+    // 401 — tokens expired and refresh failed
+  } else if (e instanceof ValidationError) {
+    // 422 — field-level validation; details in e.context
+  } else if (e instanceof BusinessRuleError) {
+    // domain rejection from the BE (any status); details in e.context
+  } else if (e instanceof ConflictError) {
+    // 409 / 412 — stale version (OCC)
+  } else {
+    throw e; // re-throw unexpected errors
+  }
+}
+```
+
+Every `QuillaFeError` carries:
+
+| Property   | Type                            | Description                                        |
+| ---------- | ------------------------------- | -------------------------------------------------- |
+| `message`  | `string`                        | Human-readable description                         |
+| `code`     | `string`                        | Stable discriminant (`'NOT_FOUND'`, `'CONFLICT'`, …) |
+| `context`  | `Record<string, unknown> \| undefined` | Structured metadata from `envelope.error.details` |
+| `cause`    | `unknown`                       | Underlying transport error (set on `NetworkError`) |
+
+HTTP-derived errors (`QuillaFeHttpError` subclasses) additionally expose
+`httpStatus: number` and `requestUrl: string | undefined`.
+
+**Cross-realm safety.** `instanceof` is reliable within a single bundle. If
+you need to detect quilla errors across module realms (micro-frontends, iframes,
+error boundaries that re-throw across bundle boundaries), use
+`QuillaFeError.is(e)` from `@quilla-fe-kit/errors` — it uses a `Symbol.for`
+brand rather than the prototype chain — then discriminate by `e.code`:
+
+```ts
+import { QuillaFeError } from '@quilla-fe-kit/errors';
+
+if (QuillaFeError.is(e) && e.code === 'NOT_FOUND') { /* ... */ }
+```
+
 ## Query-string conventions
 
 The default `RepeatParamsSerializer` matches `@quilla-kit/persistence`'s
