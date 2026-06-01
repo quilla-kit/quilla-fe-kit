@@ -7,6 +7,7 @@ import {
 import { type QueryKey, useQuery, type UseQueryOptions } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { QueryBaseResult } from './query-base-result.type.js';
+import type { QueryTransformer } from './transformer.type.js';
 import { useDebouncedValue } from './use-debounced-value.hook.js';
 
 const SEARCH_KEY = 'search';
@@ -35,6 +36,7 @@ export type UseQueryBaseOptions<TRaw, TModel = TRaw, TError = Error> = Omit<
   readonly query?: QueryBaseInput;
   readonly tuning?: QueryBaseTuning;
   readonly headers?: HttpHeaders;
+  readonly transformer?: QueryTransformer;
 };
 
 export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
@@ -42,15 +44,19 @@ export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
   baseKey: QueryKey,
   url: string,
   options: UseQueryBaseOptions<TRaw, TModel, TError> = {},
+  defaultTransformer?: QueryTransformer,
 ) => {
   const {
     mapper,
     query: rawQuery = {},
     tuning,
     headers,
+    transformer,
     enabled: userEnabled,
     ...restOptions
   } = options;
+
+  const effectiveTransformer = transformer ?? defaultTransformer;
 
   const debounceMs = tuning?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const minSearchLength = tuning?.minSearchLength ?? DEFAULT_MIN_SEARCH_LENGTH;
@@ -98,26 +104,19 @@ export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
       });
 
       const version = parseETagHeaderValue(response.headers.etag);
-      const body = response.data as { data?: TRaw; pagination?: QueryBaseResult<TModel>['pagination'] };
-      const raw = (isEnvelope<TRaw>(body) ? body.data : body) as TRaw;
+
+      const rawData = effectiveTransformer
+        ? effectiveTransformer(response.data).data
+        : response.data;
+      const raw = rawData as TRaw;
       const mapped = mapper ? mapper(raw) : (raw as unknown as TModel);
 
-      const result: QueryBaseResult<TModel> = {
-        data: mapped,
-        version,
-        ...(isEnvelope<TRaw>(body) && body.pagination ? { pagination: body.pagination } : {}),
-      };
-      return result;
+      return { data: mapped, version };
     },
     enabled: userEnabled !== undefined ? userEnabled : inferredEnabled,
     ...restOptions,
   });
 };
-
-const isEnvelope = <T>(
-  body: unknown,
-): body is { data?: T; pagination?: QueryBaseResult<T>['pagination'] } =>
-  typeof body === 'object' && body !== null && 'data' in body;
 
 const stripEmptyStrings = (
   source: Record<string, unknown> | undefined,

@@ -1,6 +1,7 @@
 import type { HttpHeaders } from '@quilla-fe-kit/api-client';
 import { type QueryKey, type UseMutationOptions } from '@tanstack/react-query';
 import { getQueryInvalidator } from './query-client.factory.js';
+import type { MutationTransformer } from './transformer.type.js';
 
 export type IdAndBody<TBody> = {
   readonly id: string | number;
@@ -31,6 +32,11 @@ export const buildMutationOnSuccess = <TData, TVars>(
     },
   };
 };
+
+export const applyMutationTransformer = <TData>(
+  data: unknown,
+  transformer: MutationTransformer | undefined,
+): TData => (transformer ? transformer(data) : data) as TData;
 
 export const mergeMutationHeaders = (
   headers: HttpHeaders | undefined,
