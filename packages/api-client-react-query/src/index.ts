@@ -1,4 +1,10 @@
 export { createHooks, type Hooks } from './hooks.factory.js';
+export type {
+  HooksConfig,
+  QueryTransformer,
+  QueryTransformResult,
+  MutationTransformer,
+} from './transformer.type.js';
 
 export {
   createQueryClient,
@@ -24,7 +30,7 @@ export {
 export { useDebouncedValue } from './use-debounced-value.hook.js';
 
 export { buildOCCHeaders, type VersionResolver } from './occ.helper.js';
-export type { IdAndBody, InvalidateKeys } from './mutation.type.js';
+export { applyMutationTransformer, type IdAndBody, type InvalidateKeys } from './mutation.type.js';
 export { type UsePostMutationOptions } from './use-post-mutation.hook.js';
 export { type UsePutMutationOptions } from './use-put-mutation.hook.js';
 export { type UsePatchMutationOptions } from './use-patch-mutation.hook.js';

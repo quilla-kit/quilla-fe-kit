@@ -236,6 +236,99 @@ describe('mutations — invalidate-on-success integration smoke', () => {
   });
 });
 
+describe('mutations — transformers', () => {
+  it('factory mutationTransformer is applied to the response before returning', async () => {
+    const { client } = createFakeHttpClient(async () => ({
+      status: 201,
+      headers: {},
+      data: { payload: { id: 'created' } },
+    }));
+    const hooks = createHooks(client, {
+      mutationTransformer: (raw) => (raw as { payload: unknown }).payload,
+    });
+
+    const { result } = renderHookWithProviders(
+      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    );
+
+    let resolved: { id: string } | undefined;
+    await act(async () => {
+      resolved = await result.current.mutateAsync({ name: 'A' });
+    });
+
+    expect(resolved).toEqual({ id: 'created' });
+  });
+
+  it('hook-level transformer overrides the factory mutationTransformer', async () => {
+    const { client } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: { result: { id: 99 } },
+    }));
+    const hooks = createHooks(client, {
+      mutationTransformer: (raw) => (raw as { payload: unknown }).payload,
+    });
+
+    const { result } = renderHookWithProviders(
+      () =>
+        hooks.usePostMutationBase<{ id: number }, { name: string }>('/special', {
+          transformer: (raw) => (raw as { result: unknown }).result,
+        }),
+    );
+
+    let resolved: { id: number } | undefined;
+    await act(async () => {
+      resolved = await result.current.mutateAsync({ name: 'A' });
+    });
+
+    expect(resolved).toEqual({ id: 99 });
+  });
+
+  it('without transformer response.data is returned as-is', async () => {
+    const { client } = createFakeHttpClient(async () => ({
+      status: 201,
+      headers: {},
+      data: { id: 'raw' },
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(
+      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    );
+
+    let resolved: { id: string } | undefined;
+    await act(async () => {
+      resolved = await result.current.mutateAsync({ name: 'A' });
+    });
+
+    expect(resolved).toEqual({ id: 'raw' });
+  });
+
+  it('mutationTransformer receives undefined for 204 No Content and passes it through', async () => {
+    const { client } = createFakeHttpClient(async () => ({
+      status: 204,
+      headers: {},
+      data: undefined,
+    }));
+    const hooks = createHooks(client, {
+      mutationTransformer: (raw) => {
+        if (raw == null) return raw;
+        return (raw as { payload: unknown }).payload;
+      },
+    });
+
+    const { result } = renderHookWithProviders(
+      () => hooks.useDeleteMutationBase<void, string>('/users'),
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync('abc');
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});
+
 describe('mutations — invalidate option uses getQueryInvalidator()', () => {
   it('calls invalidate on the singleton invalidator with the resolved keys on success', async () => {
     const queryClient = createQueryClient();

@@ -2,7 +2,8 @@
 
 React Query adapter for [`@quilla-fe-kit/api-client`](../api-client):
 
-- **`createHooks(httpClient)`** — binds all hooks to an `HttpClient` instance.
+- **`createHooks(httpClient, config?)`** — binds all hooks to an `HttpClient` instance
+  and optionally configures default response transformers for all queries and mutations.
   The client is an infrastructure detail: it never leaks into the component tree.
 - **`createQueryClient(config)`** — initialises the singleton `QueryClient`
   and returns it. Throws on a second call. Typed-error retry policy, optional
@@ -315,6 +316,27 @@ Binds all hooks to an `HttpClient` instance at module level, outside React.
 The `HttpClient` is an infrastructure detail — it is never accessible through
 the component tree, so no component can make raw HTTP calls by accident.
 
+```ts
+createHooks(httpClient, config?)
+```
+
+The optional `config` object accepts:
+
+```ts
+{
+  // Applied to every useQueryBase call. Must return { data }.
+  // Pagination and any other metadata should be included in data itself.
+  queryTransformer?: (raw: unknown) => { data: unknown };
+
+  // Applied to every mutation hook call. Returns the domain value.
+  mutationTransformer?: (raw: unknown) => unknown;
+}
+```
+
+Both transformers default to a no-op: without them, `response.data` is
+returned as-is. See [Response transformers](#response-transformers) for the
+full pattern including per-call overrides.
+
 Destructure the returned object so each hook is exported by name and imported
 like any other hook — no dot-access, no new API to learn:
 
@@ -361,8 +383,10 @@ A typed `useQuery` wrapper for the common list / detail GET shape. Adds:
   pass inline literals each render without thrashing the cache.
 - **Version extraction** — reads the `ETag` response header into
   `result.data.version` for downstream OCC mutations.
-- **Response unwrapping** — accepts both `{ data, pagination }` envelope
-  shape and bare-data responses.
+- **Optional response transformer** — a `transformer` option (or the factory-level
+  `queryTransformer`) can unwrap any envelope shape. Must return `{ data }` where
+  `data` is the complete domain value — including pagination if the backend
+  returns it. Without a transformer, `response.data` is used as-is.
 
 ```ts
 const { data, isLoading } = useQueryBase<RawUser, UserVm>(
@@ -379,14 +403,160 @@ const { data, isLoading } = useQueryBase<RawUser, UserVm>(
     tuning: { debounceMs: 300, minSearchLength: 2 },
     mapper: (raw) => toUserVm(raw),     // optional raw → vm transform
     headers: { 'X-Trace-Id': traceId }, // optional per-call headers
+    transformer: (raw) => {
+      const body = raw as { data: RawUser | RawUser[] };
+      return { data: body.data };
+    },
     // ...any UseQueryOptions field except queryKey/queryFn
   },
 );
 
-// data shape: { data: UserVm | UserVm[], version: number | null, pagination?: {...} }
+// data shape: { data: UserVm | UserVm[], version: number | null }
 ```
 
-`mapper` runs once per fetch (inside the `queryFn`) — not on every render.
+`transformer` runs first (extracts `data` from the envelope), then `mapper`
+receives that value as its input. Both run once per fetch inside the `queryFn`
+— not on every render.
+
+`transformer` overrides the factory-level `queryTransformer` for this specific
+call. Use it when one endpoint returns a different envelope shape than the rest.
+See [Response transformers](#response-transformers) for the full pattern.
+
+## Response transformers
+
+Most real backends don't return bare domain objects — they wrap responses in
+an envelope. Transformers let you normalise that shape once, at the factory
+level, so every hook and every DTO stays clean.
+
+### Why two separate transformers
+
+Query and mutation responses differ structurally:
+
+- **Queries** return domain data via `useQueryBase`, which surfaces it as
+  `result.data.data`. The `queryTransformer` returns `{ data }` where `data`
+  is the complete domain value — including pagination metadata if the backend
+  sends it alongside the items array.
+- **Mutations** return a single domain value (or nothing for `204 No Content`).
+  `mutationTransformer` just returns the unwrapped value.
+
+Collapsing them into one function would force it to inspect context it
+shouldn't need to know about.
+
+### Factory-level transformers (default for all hooks)
+
+Set transformers once in `createHooks` and every hook call inherits them:
+
+```ts
+// lib/api.ts
+import { createHooks } from '@quilla-fe-kit/api-client-react-query';
+
+// Backend envelope shapes:
+//   GET  → { payload: T,   metadata?: { pagination: { page, limit, total } } }
+//   POST/PUT/PATCH → { payload: T }
+//   DELETE         → 204 No Content (undefined)
+
+type Envelope<T> = { payload: T; metadata?: { pagination?: unknown } };
+
+export const {
+  useQueryBase,
+  usePostMutationBase,
+  usePutMutationBase,
+  usePatchMutationBase,
+  useDeleteMutationBase,
+} = createHooks(httpClient, {
+  queryTransformer: (raw) => {
+    const body = raw as Envelope<User[]>;
+    return {
+      data: {
+        items: body.payload,
+        pagination: body.metadata?.pagination as { page: number; limit: number; total: number } | undefined,
+      },
+    };
+  },
+
+  mutationTransformer: (raw) => {
+    if (raw == null) return raw; // 204 No Content
+    return (raw as Envelope<unknown>).payload;
+  },
+});
+```
+
+Define domain types that use domain language — no envelope fields leak through:
+
+```ts
+type PagedUsers = {
+  items: User[];
+  pagination?: { page: number; limit: number; total: number };
+};
+
+// TRaw = PagedUsers — useQueryBase surfaces the transformer output directly
+const { data } = useQueryBase<PagedUsers>(userKeys.lists(), '/users', { query });
+// data.data.items      → User[]
+// data.data.pagination → { page, limit, total }
+```
+
+DTOs for mutation responses are plain domain types — no envelope awareness:
+
+```ts
+// Before: AuthTokensDto had to declare a `payload` field
+type AuthTokensDto = { payload: { accessToken: string; refreshToken: string } };
+
+// After: clean domain type
+type AuthTokensDto = { accessToken: string; refreshToken: string };
+
+const login = usePostMutationBase<AuthTokensDto, LoginBody>('/auth/login', {
+  disabledAuth: true,
+});
+// login.data is AuthTokensDto directly — no .payload access
+```
+
+### Per-call transformer override
+
+If one endpoint returns a shape that differs from the rest, pass `transformer`
+in the hook's options. It takes precedence over the factory default:
+
+```ts
+// All other query hooks use the factory queryTransformer above.
+// This endpoint returns { result: T } instead of { payload: T }.
+const { data } = useQueryBase<StatsDto>(['stats'], '/stats', {
+  transformer: (raw) => ({ data: (raw as { result: unknown }).result }),
+});
+
+// Similarly for mutations
+const archive = usePostMutationBase<void, { id: string }>('/archive', {
+  transformer: (raw) => raw, // endpoint returns 200 with no body wrapper
+});
+```
+
+### Without a transformer
+
+When no transformer is set at either level, `response.data` is returned
+as-is. This is the right default for backends that already return bare
+domain values with no wrapping:
+
+```ts
+// Backend returns { id: string, name: string } directly
+const hooks = createHooks(httpClient); // no transformers
+
+const { data } = useQueryBase<User>(['users', id], `/users/${id}`);
+// data.data is { id, name } — response.data passed straight through
+```
+
+### Types
+
+```ts
+import type {
+  QueryTransformer,
+  MutationTransformer,
+  QueryTransformResult,
+  HooksConfig,
+} from '@quilla-fe-kit/api-client-react-query';
+
+// QueryTransformer<TData>   = (raw: unknown) => { data: TData }
+// MutationTransformer       = (raw: unknown) => unknown
+// QueryTransformResult<T>   = { data: T }
+// HooksConfig               = { queryTransformer?: QueryTransformer; mutationTransformer?: MutationTransformer }
+```
 
 ## Mutation hooks
 
@@ -548,8 +718,7 @@ builder that returns the React Query queryKey of a cache entry shaped as
 ```ts
 type QueryBaseResult<T> = {
   data: T;
-  version: number | null;     // populated from response ETag
-  pagination?: { page, limit, total };
+  version: number | null; // populated from response ETag
 };
 ```
 
@@ -575,8 +744,10 @@ cache internally — no `QueryClient` argument needed.
 
 ## `useDebouncedValue`
 
-Pure utility — no React Query or HTTP-client dependency. Included in the
-`createHooks` return object and also exported as a direct named export.
+Pure utility — no React Query or HTTP-client dependency. Exported as a direct
+named export only — it is not part of the `createHooks` return object, since it
+has no HTTP-client dependency and including it there would muddy the factory's
+contract.
 
 ```ts
 import { useDebouncedValue } from '@quilla-fe-kit/api-client-react-query';
@@ -587,7 +758,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 ## API surface
 
 ### Factories and accessors
-- `createHooks(httpClient)` → `Hooks`
+- `createHooks(httpClient, config?)` → `Hooks`
 - `createQueryClient(config)` → `QueryClient` _(throws on second call — singleton guard)_
 - `getQueryClient()` → `QueryClient` _(throws if called before `createQueryClient`)_
 - `queryInvalidator` — stable proxy; safe to import at module scope
@@ -612,6 +783,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 - `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`
 - `QueryKeyFactory`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
+- `HooksConfig`, `QueryTransformer`, `MutationTransformer`, `QueryTransformResult`
 
 ## Constraints and known limitations
 
