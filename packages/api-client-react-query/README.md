@@ -162,9 +162,9 @@ beforeEach(() => {
 });
 ```
 
-`resetQueryClient()` drops the internal reference — it does not call
-`queryClient.clear()`. If your tests mount a `QueryClientProvider`, tear
-down the component tree before or after calling it.
+`resetQueryClient()` clears both the query cache and mutation cache of the
+active instance, then drops the internal reference. If your tests mount a
+`QueryClientProvider`, tear down the component tree before or after calling it.
 
 When a hook under test uses `occ` or `invalidate`, both features read from
 the singleton cache. You must pass the singleton `queryClient` to your
@@ -760,10 +760,9 @@ const debounced = useDebouncedValue(searchInput, 500);
 ### Factories and accessors
 - `createHooks(httpClient, config?)` → `Hooks`
 - `createQueryClient(config)` → `QueryClient` _(throws on second call — singleton guard)_
-- `getQueryClient()` → `QueryClient` _(throws if called before `createQueryClient`)_
 - `queryInvalidator` — stable proxy; safe to import at module scope
 - `getQueryInvalidator()` → `QueryInvalidator` _(throws if called before `createQueryClient`)_
-- `resetQueryClient()` — clears the singleton guard; use in `beforeEach` in tests
+- `resetQueryClient()` — clears both caches and the singleton guard; use in `beforeEach` in tests and in HMR `dispose` handlers
 - `createQueryKeys(domain)` → `QueryKeyFactory`
 
 ### Hooks (returned by `createHooks`, destructure and import by name)
