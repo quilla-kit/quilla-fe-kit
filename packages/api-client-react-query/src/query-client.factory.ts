@@ -134,5 +134,6 @@ export const queryInvalidator: QueryInvalidator = {
 };
 
 export const resetQueryClient = (): void => {
+  _instance?.queryClient.clear();
   _instance = null;
 };
