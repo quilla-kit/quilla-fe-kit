@@ -4,6 +4,8 @@ export type HttpHeaders = Record<string, string>;
 
 export type HttpQueryParams = Record<string, unknown> | undefined;
 
+export type HttpResponseType = 'json' | 'text' | 'blob' | 'arrayBuffer' | 'stream';
+
 export type HttpRequestBody =
   | undefined
   | null
@@ -24,6 +26,7 @@ export type HttpRequest = {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly disabledAuth?: boolean;
+  readonly responseType?: HttpResponseType;
 };
 
 export type HttpResponse<T = unknown> = {
