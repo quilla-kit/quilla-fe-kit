@@ -286,6 +286,44 @@ For upload progress, use a custom `HttpClient` that wraps XHR — `fetch`
 doesn't expose progress events for request bodies. (A separate
 upload-progress decorator is on the roadmap; not implemented today.)
 
+## Binary downloads
+
+By default the client decodes response bodies as text/JSON, which corrupts
+binary. For a zip export, PDF, or image, set `responseType` so the body is
+read with the right decoder:
+
+```ts
+const { data: zip } = await client.request<Blob>({
+  url: '/exports/report.zip',
+  responseType: 'blob',
+});
+```
+
+`responseType` accepts `'json'`, `'text'`, `'blob'`, `'arrayBuffer'`, or
+`'stream'` (the raw `ReadableStream` from `response.body`). Error responses
+are always parsed as the JSON envelope regardless of `responseType`, so a
+failing binary request still throws the typed error class — and because the
+request flows through the normal layers, it carries the Bearer token and gets
+the 401 silent-refresh + retry that a hand-rolled `fetch` would miss.
+
+To fetch an authenticated file and trigger a browser "Save as" in one call:
+
+```ts
+import { downloadFile } from '@quilla-fe-kit/api-client';
+
+await downloadFile(client, {
+  url: '/exports/report.zip',
+  filename: 'report.zip',
+});
+```
+
+`downloadFile` GETs the resource as a `Blob` through the client, then hands it
+to `saveBlobAsFile(blob, filename)`, which creates an object URL, clicks a
+synthetic `<a download>`, and revokes the URL. Both are **browser-only** — they
+throw a clear error if `document` / `URL.createObjectURL` is unavailable (SSR,
+Node, edge). The binary fetch (`responseType`) itself stays environment-agnostic;
+only the save-to-disk step needs the DOM.
+
 ## Wire-contract types
 
 `@quilla-fe-kit/api-client` re-exports the BE wire types (used internally
@@ -349,6 +387,10 @@ are lowercase.
 ### Factory
 - `createHttpClient(config: CreateHttpClientConfig): HttpClient`
 
+### Browser-only helpers
+- `downloadFile(client, options: DownloadFileOptions): Promise<void>` — authenticated binary GET → "Save as"
+- `saveBlobAsFile(blob: Blob, filename: string): void` — trigger a browser download from a `Blob`
+
 ### Interfaces
 - `HttpClient` — `request<T>(config) => Promise<HttpResponse<T>>`
 - `HttpErrorParser` — `fromResponse(...) => Error`, `fromTransportError(error) => Error`
@@ -356,7 +398,8 @@ are lowercase.
 
 ### Types
 - `HttpRequest`, `HttpResponse<T>`, `HttpHeaders`, `HttpQueryParams`,
-  `HttpRequestBody`, `HttpMethod`
+  `HttpRequestBody`, `HttpMethod`, `HttpResponseType`
+- `DownloadFileOptions`
 - `CreateHttpClientConfig`, `QueryConventions`
 - `RefreshEndpoint`, `TokenRefresher`
 

@@ -5,6 +5,7 @@ import type {
   HttpRequest,
   HttpRequestBody,
   HttpResponse,
+  HttpResponseType,
 } from './http-types.type.js';
 import type { QueryStringSerializer } from './query-string-serializer.interface.js';
 
@@ -46,16 +47,18 @@ export class FetchHttpClient implements HttpClient {
     }
 
     const responseHeaders = this.readHeaders(response.headers);
-    const parsedBody = await this.parseBody(response);
 
     if (!response.ok) {
-      throw this.errorParser.fromResponse(response.status, response.statusText, parsedBody, url);
+      const errorBody = await this.parseAutoBody(response);
+      throw this.errorParser.fromResponse(response.status, response.statusText, errorBody, url);
     }
+
+    const data = await this.parseBody(response, config.responseType);
 
     return {
       status: response.status,
       headers: responseHeaders,
-      data: parsedBody as T,
+      data: data as T,
     };
   }
 
@@ -127,9 +130,31 @@ export class FetchHttpClient implements HttpClient {
     return result;
   }
 
-  private async parseBody(response: Response): Promise<unknown> {
+  private async parseBody(
+    response: Response,
+    responseType: HttpResponseType | undefined,
+  ): Promise<unknown> {
     if (response.status === 204 || response.status === 205) return undefined;
 
+    switch (responseType) {
+      case 'blob':
+        return response.blob();
+      case 'arrayBuffer':
+        return response.arrayBuffer();
+      case 'stream':
+        return response.body;
+      case 'text':
+        return response.text();
+      case 'json': {
+        const text = await response.text();
+        return text ? JSON.parse(text) : undefined;
+      }
+      default:
+        return this.parseAutoBody(response);
+    }
+  }
+
+  private async parseAutoBody(response: Response): Promise<unknown> {
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const text = await response.text();

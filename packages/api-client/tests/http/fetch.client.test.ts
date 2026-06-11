@@ -118,6 +118,64 @@ describe('FetchHttpClient — response parsing', () => {
   });
 });
 
+describe('FetchHttpClient — responseType', () => {
+  it('returns a Blob when responseType is blob', async () => {
+    const { client } = buildClient(() =>
+      fakeResponse({ body: 'PKzip', headers: { 'content-type': 'application/zip' } }),
+    );
+    const res = await client.request<Blob>({ url: '/export.zip', responseType: 'blob' });
+    expect(res.data).toBeInstanceOf(Blob);
+    expect(await res.data.text()).toBe('PKzip');
+  });
+
+  it('returns an ArrayBuffer when responseType is arrayBuffer', async () => {
+    const { client } = buildClient(() =>
+      fakeResponse({ body: 'bytes', headers: { 'content-type': 'application/octet-stream' } }),
+    );
+    const res = await client.request<ArrayBuffer>({ url: '/x', responseType: 'arrayBuffer' });
+    expect(res.data).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(res.data)).toBe('bytes');
+  });
+
+  it('returns the raw ReadableStream when responseType is stream', async () => {
+    const { client } = buildClient(() =>
+      fakeResponse({ body: 'chunk', headers: { 'content-type': 'application/octet-stream' } }),
+    );
+    const res = await client.request<ReadableStream<Uint8Array>>({
+      url: '/x',
+      responseType: 'stream',
+    });
+    expect(typeof res.data.getReader).toBe('function');
+  });
+
+  it('returns text even for JSON content-type when responseType is text', async () => {
+    const { client } = buildClient(() => fakeResponse({ body: { a: 1 } }));
+    const res = await client.request<string>({ url: '/x', responseType: 'text' });
+    expect(res.data).toBe('{"a":1}');
+  });
+
+  it('parses JSON regardless of content-type when responseType is json', async () => {
+    const { client } = buildClient(() =>
+      fakeResponse({ body: '{"x":1}', headers: { 'content-type': 'text/plain' } }),
+    );
+    const res = await client.request<{ x: number }>({ url: '/x', responseType: 'json' });
+    expect(res.data).toEqual({ x: 1 });
+  });
+
+  it('still parses the error envelope (not the blob) on a failing binary request', async () => {
+    const { client } = buildClient(() =>
+      fakeResponse({
+        status: 404,
+        statusText: 'Not Found',
+        body: { error: { name: 'NotFoundError', message: 'gone' } },
+      }),
+    );
+    await expect(
+      client.request<Blob>({ url: '/export.zip', responseType: 'blob' }),
+    ).rejects.toMatchObject({ name: 'NotFoundError' });
+  });
+});
+
 describe('FetchHttpClient — error handling', () => {
   it('rejects with the parser-mapped error for 4xx/5xx', async () => {
     const { client } = buildClient(() =>

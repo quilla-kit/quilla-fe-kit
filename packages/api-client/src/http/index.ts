@@ -2,6 +2,7 @@ export type {
   HttpMethod,
   HttpHeaders,
   HttpQueryParams,
+  HttpResponseType,
   HttpRequestBody,
   HttpRequest,
   HttpResponse,
@@ -22,3 +23,5 @@ export {
 } from './single-flight-token.refresher.js';
 
 export { createHttpClient, type CreateHttpClientConfig } from './http-client.factory.js';
+
+export { downloadFile, saveBlobAsFile, type DownloadFileOptions } from './file.downloader.js';
