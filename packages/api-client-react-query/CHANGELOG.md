@@ -1,5 +1,12 @@
 # @quilla-fe-kit/api-client-react-query
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [3463bd1]
+  - @quilla-fe-kit/api-client@0.2.0
+
 ## 0.5.0
 
 ### Minor Changes
