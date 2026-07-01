@@ -1,13 +1,13 @@
 import '@tanstack/react-query';
 
-type SharedMeta = {
+export type SharedMeta = {
   showSuccess?: boolean;
   showWarning?: boolean;
   customSuccessMessage?: string;
   customErrorMessage?: string;
 };
 
-type QuillaMutationMeta = SharedMeta & {
+export type QuillaMutationMeta = SharedMeta & {
   showError?: boolean;
 };
 
