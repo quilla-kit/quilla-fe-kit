@@ -39,3 +39,5 @@ export {
   createQueryKeys,
   type QueryKeyFactory,
 } from './query-keys.factory.js';
+
+export type { SharedMeta, QuillaMutationMeta } from './query-meta.js';

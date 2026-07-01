@@ -870,7 +870,6 @@ Importing this package once anywhere in your app augments
 `meta: { showSuccess, showWarning, customSuccessMessage, customErrorMessage }`
 on queries (and `showError` on mutations).
 
-You don't need to do anything to opt in beyond the import. If you want
-explicit control, the augmentation is published in
-[`src/query-meta.d.ts`](src/query-meta.d.ts) — copy it into your own
-`*.d.ts` and customize the field shape.
+You don't need to do anything to opt in beyond the import. The types
+`SharedMeta` and `QuillaMutationMeta` are also exported if you want to
+reference the field shapes explicitly.
