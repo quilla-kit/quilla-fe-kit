@@ -1,5 +1,12 @@
 # @quilla-fe-kit/auth-react
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [b71745f]
+  - @quilla-fe-kit/api-client@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes
