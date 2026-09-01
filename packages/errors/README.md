@@ -41,7 +41,9 @@ QuillaFeError                          (abstract — base for all kit errors)
 │   ├── UnauthorizedError              code: 'UNAUTHORIZED'
 │   ├── ForbiddenError                 code: 'FORBIDDEN'
 │   ├── NotFoundError                  code: 'NOT_FOUND'
+│   │   └── CrossScopeAccessError      code: 'CROSS_SCOPE_ACCESS'
 │   ├── ConflictError                  code: 'CONFLICT'      (409 + 412)
+│   │   └── OptimisticLockError        code: 'OPTIMISTIC_LOCK'
 │   ├── ValidationError                code: 'VALIDATION'
 │   ├── BusinessRuleError              code: 'BUSINESS_RULE' (status varies)
 │   └── InternalServerError            code: 'INTERNAL_SERVER'
@@ -49,7 +51,11 @@ QuillaFeError                          (abstract — base for all kit errors)
 ```
 
 `code` is a literal type per class — `error.code === 'CONFLICT'` narrows the
-class via discriminated union without `instanceof`.
+class via discriminated union without `instanceof`. `ConflictError` and
+`NotFoundError` are the exception: they declare `code` as plain `string`
+(not a narrower literal) because `OptimisticLockError` and
+`CrossScopeAccessError` override it — see [Discriminated union on
+`code`](#discriminated-union-on-code).
 
 ## Usage
 
@@ -77,6 +83,20 @@ class UserNotFoundError extends NotFoundError {
       requestUrl: opts.requestUrl,
     });
   }
+}
+```
+
+The kit ships two such leaves — `OptimisticLockError extends ConflictError`
+and `CrossScopeAccessError extends NotFoundError` — mirroring the
+domain-specific errors `@quilla-be-kit/persistence` throws on the backend.
+They need no custom constructor since their parent's options shape already
+fits; overriding `code` is enough:
+
+```ts
+import { ConflictError } from '@quilla-fe-kit/errors';
+
+export class OptimisticLockError extends ConflictError {
+  override readonly code = 'OPTIMISTIC_LOCK';
 }
 ```
 
@@ -134,7 +154,7 @@ function classify(e: unknown) {
 
 ## Discriminated union on `code`
 
-Because each subclass declares `readonly code = '...'` without a widening
+Because most subclasses declare `readonly code = '...'` without a widening
 annotation, `code` is the literal type, not `string`:
 
 ```ts
@@ -147,6 +167,16 @@ function handle(e: QuillaFeError) {
   }
 }
 ```
+
+`ConflictError` and `NotFoundError` are the two exceptions: they type `code`
+as `string` explicitly, because `OptimisticLockError` and
+`CrossScopeAccessError` need to override it with a different literal, and
+TypeScript rejects overriding a base class field with an incompatible
+literal type. Runtime behavior is unaffected — `e.code === 'CONFLICT'`
+still works — but a `switch` on `code` won't get exhaustiveness checking
+for those two branches the way it does for the rest. Prefer `instanceof`
+over `code` when you need to distinguish `OptimisticLockError` /
+`CrossScopeAccessError` from their generic parent.
 
 ## Serialization
 

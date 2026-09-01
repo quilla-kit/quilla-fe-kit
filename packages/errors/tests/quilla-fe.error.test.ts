@@ -3,10 +3,12 @@ import {
   BadRequestError,
   BusinessRuleError,
   ConflictError,
+  CrossScopeAccessError,
   ForbiddenError,
   InternalServerError,
   NetworkError,
   NotFoundError,
+  OptimisticLockError,
   QuillaFeError,
   QuillaFeHttpError,
   UnauthorizedError,
@@ -29,9 +31,9 @@ describe('QuillaFeError', () => {
     expect(new BadRequestError({ message: 'x', httpStatus: 400, requestUrl: '/x' }).name).toBe(
       'BadRequestError',
     );
-    expect(
-      new BusinessRuleError({ message: 'x', httpStatus: 422, requestUrl: '/x' }).name,
-    ).toBe('BusinessRuleError');
+    expect(new BusinessRuleError({ message: 'x', httpStatus: 422, requestUrl: '/x' }).name).toBe(
+      'BusinessRuleError',
+    );
     expect(new NetworkError({ message: 'x' }).name).toBe('NetworkError');
   });
 
@@ -73,6 +75,8 @@ describe('QuillaFeError', () => {
     [ForbiddenError, 'FORBIDDEN'],
     [NotFoundError, 'NOT_FOUND'],
     [ConflictError, 'CONFLICT'],
+    [OptimisticLockError, 'OPTIMISTIC_LOCK'],
+    [CrossScopeAccessError, 'CROSS_SCOPE_ACCESS'],
     [ValidationError, 'VALIDATION'],
     [BusinessRuleError, 'BUSINESS_RULE'],
     [InternalServerError, 'INTERNAL_SERVER'],
@@ -83,6 +87,16 @@ describe('QuillaFeError', () => {
     expect(err).toBeInstanceOf(QuillaFeHttpError);
     expect(err.httpStatus).toBe(500);
     expect(err.requestUrl).toBe('/u');
+  });
+
+  it('OptimisticLockError is a ConflictError', () => {
+    const err = new OptimisticLockError({ message: 'x', httpStatus: 409, requestUrl: '/u' });
+    expect(err).toBeInstanceOf(ConflictError);
+  });
+
+  it('CrossScopeAccessError is a NotFoundError', () => {
+    const err = new CrossScopeAccessError({ message: 'x', httpStatus: 404, requestUrl: '/u' });
+    expect(err).toBeInstanceOf(NotFoundError);
   });
 
   it('NetworkError carries code NETWORK and is NOT a QuillaFeHttpError', () => {
