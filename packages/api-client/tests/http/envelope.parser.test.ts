@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'vitest';
 import {
   BadRequestError,
   BusinessRuleError,
   ConflictError,
+  CrossScopeAccessError,
   ForbiddenError,
   InternalServerError,
   NetworkError,
   NotFoundError,
+  OptimisticLockError,
   UnauthorizedError,
   ValidationError,
 } from '@quilla-fe-kit/errors';
+import { describe, expect, it } from 'vitest';
 import { EnvelopeHttpErrorParser } from '../../src/http/envelope.parser.js';
 
 const parser = new EnvelopeHttpErrorParser();
@@ -30,9 +32,7 @@ describe('EnvelopeHttpErrorParser.fromResponse', () => {
   });
 
   it('falls back to InternalServerError on unmapped status', () => {
-    expect(parser.fromResponse(599, 'Custom', undefined, '/u')).toBeInstanceOf(
-      InternalServerError,
-    );
+    expect(parser.fromResponse(599, 'Custom', undefined, '/u')).toBeInstanceOf(InternalServerError);
   });
 
   it('dispatches by error.name when present, overriding status', () => {
@@ -48,13 +48,47 @@ describe('EnvelopeHttpErrorParser.fromResponse', () => {
     expect(err).toBeInstanceOf(ConflictError);
   });
 
+  it('dispatches OptimisticLockError by name on a 409, not the generic ConflictError', () => {
+    const body = {
+      error: {
+        name: 'OptimisticLockError',
+        message: 'admin_credentials was modified by another process',
+        details: { entity: 'admin_credentials', id: '457e2e2b-...' },
+      },
+    };
+    const err = parser.fromResponse(409, 'Conflict', body, '/x');
+    expect(err).toBeInstanceOf(OptimisticLockError);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as OptimisticLockError).code).toBe('OPTIMISTIC_LOCK');
+    expect((err as OptimisticLockError).context).toEqual({
+      entity: 'admin_credentials',
+      id: '457e2e2b-...',
+    });
+  });
+
+  it('dispatches CrossScopeAccessError by name on a 404, not the generic NotFoundError', () => {
+    const body = {
+      error: {
+        name: 'CrossScopeAccessError',
+        message: 'not found',
+        details: { entity: 'account', id: '1', scopeId: 'tenant-a' },
+      },
+    };
+    const err = parser.fromResponse(404, 'Not Found', body, '/x');
+    expect(err).toBeInstanceOf(CrossScopeAccessError);
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect((err as CrossScopeAccessError).code).toBe('CROSS_SCOPE_ACCESS');
+  });
+
   it('uses statusText as message when envelope is absent', () => {
     const err = parser.fromResponse(404, 'Not Found', undefined, '/x');
     expect(err.message).toBe('Not Found');
   });
 
   it('puts envelope details into context (domain only) and httpStatus/requestUrl on the error', () => {
-    const body = { error: { name: 'ValidationError', message: 'bad', details: { field: 'email' } } };
+    const body = {
+      error: { name: 'ValidationError', message: 'bad', details: { field: 'email' } },
+    };
     const err = parser.fromResponse(422, 'Unprocessable', body, '/users');
     expect(err).toBeInstanceOf(ValidationError);
     expect((err as ValidationError).context).toEqual({ field: 'email' });

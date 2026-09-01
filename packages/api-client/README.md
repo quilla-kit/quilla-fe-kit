@@ -148,13 +148,18 @@ The default parser dispatches by `error.name` first, then by status code:
 | 409 / 412                                     | `ConflictError`        |
 | 422                                           | `ValidationError`      |
 | 500                                           | `InternalServerError`  |
-| (custom `error.name`, e.g. `BusinessRuleError`)| matching FE class      |
+| (custom `error.name`, e.g. `BusinessRuleError`, `OptimisticLockError`, `CrossScopeAccessError`) | matching FE class |
 | transport failure (offline, abort, TypeError) | `NetworkError`         |
 | anything else                                 | `InternalServerError`  |
 
 Name-first dispatch is what makes `BusinessRuleError` round-trip — it has
 no unique HTTP status, but the BE serializes the class name into
-`envelope.error.name` and the FE picks it up.
+`envelope.error.name` and the FE picks it up. It's also how domain-specific
+subtypes of a generic HTTP error survive the round trip: `@quilla-be-kit/persistence`'s
+`OptimisticLockError` (`extends ConflictError`) and `CrossScopeAccessError`
+(`extends NotFoundError`) each serialize their own class name, so the parser
+resolves them to the matching FE subclass instead of the generic
+`ConflictError` / `NotFoundError` a status-only lookup would produce.
 
 To plug a non-quilla error envelope:
 
@@ -188,6 +193,7 @@ import {
   ValidationError,
   BusinessRuleError,
   ConflictError,
+  OptimisticLockError,
 } from '@quilla-fe-kit/errors';
 
 try {
@@ -196,20 +202,28 @@ try {
   if (e instanceof NetworkError) {
     // transport failure — offline, timeout, abort
   } else if (e instanceof NotFoundError) {
-    // 404
+    // 404 (covers CrossScopeAccessError too — check that first if you
+    // need to tell scope-boundary 404s apart from plain not-found)
   } else if (e instanceof UnauthorizedError) {
     // 401 — tokens expired and refresh failed
   } else if (e instanceof ValidationError) {
     // 422 — field-level validation; details in e.context
   } else if (e instanceof BusinessRuleError) {
     // domain rejection from the BE (any status); details in e.context
+  } else if (e instanceof OptimisticLockError) {
+    // 409 — lost a concurrent write race; e.context is { entity, id }
   } else if (e instanceof ConflictError) {
-    // 409 / 412 — stale version (OCC)
+    // 409 / 412 — stale version (OCC) or other conflict
   } else {
     throw e; // re-throw unexpected errors
   }
 }
 ```
+
+`instanceof` checks for a subclass (`OptimisticLockError`,
+`CrossScopeAccessError`) must come before the check for its generic parent
+(`ConflictError`, `NotFoundError`) — the parent check would otherwise match
+first and swallow the more specific branch.
 
 Every `QuillaFeError` carries:
 
