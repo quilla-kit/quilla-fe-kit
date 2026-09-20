@@ -77,14 +77,15 @@ export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
       );
     const cleanedSearch = stripEmptyStrings(debouncedSearch);
 
-    const next: HttpQueryParams = {};
+    // `extra` goes first so the typed fields win on a key collision: a stray
+    // `extra.page` must not silently reshape pagination.
+    const next: HttpQueryParams = { ...(stableQuery.extra ?? {}) };
     if (cleanedSearch && Object.keys(cleanedSearch).length > 0) next[SEARCH_KEY] = cleanedSearch;
     if (stableQuery.filter && Object.keys(stableQuery.filter).length > 0)
       next.filter = stableQuery.filter;
     if (stableQuery.page !== undefined) next.page = stableQuery.page;
     if (stableQuery.limit !== undefined) next.limit = stableQuery.limit;
     if (stableQuery.sort !== undefined) next.sort = stableQuery.sort;
-    if (stableQuery.extra) Object.assign(next, stableQuery.extra);
 
     return { params: next, inferredEnabled: hasSearch ? searchActive : true };
   }, [stableQuery, debouncedSearch, minSearchLength]);

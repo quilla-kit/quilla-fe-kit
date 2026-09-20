@@ -12,8 +12,8 @@ describe('useQueryBase — basic fetch', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useQueryBase<{ name: string }>(['users', 1], '/users/1'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ name: string }>(['users', 1], '/users/1'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -29,11 +29,10 @@ describe('useQueryBase — basic fetch', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () =>
-        hooks.useQueryBase<{ name: string }, { name: string; upper: string }>(['u'], '/u', {
-          mapper: (raw) => ({ name: raw.name, upper: raw.name.toUpperCase() }),
-        }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ name: string }, { name: string; upper: string }>(['u'], '/u', {
+        mapper: (raw) => ({ name: raw.name, upper: raw.name.toUpperCase() }),
+      }),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -48,8 +47,8 @@ describe('useQueryBase — basic fetch', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useQueryBase<{ name: string }>(['users', 2], '/users/2'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ name: string }>(['users', 2], '/users/2'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -59,7 +58,10 @@ describe('useQueryBase — basic fetch', () => {
 
 describe('useQueryBase — transformers', () => {
   it('factory queryTransformer unwraps the envelope; pagination is part of TRaw', async () => {
-    type PagedUsers = { items: { id: number }[]; pagination: { page: number; limit: number; total: number } };
+    type PagedUsers = {
+      items: { id: number }[];
+      pagination: { page: number; limit: number; total: number };
+    };
 
     const { client } = createFakeHttpClient(async () => ({
       status: 200,
@@ -76,8 +78,8 @@ describe('useQueryBase — transformers', () => {
       },
     });
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useQueryBase<PagedUsers>(['users'], '/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<PagedUsers>(['users'], '/users'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -98,14 +100,13 @@ describe('useQueryBase — transformers', () => {
       },
     });
 
-    const { result } = renderHookWithProviders(
-      () =>
-        hooks.useQueryBase<{ id: number }>(['special'], '/special', {
-          transformer: (raw) => {
-            const body = raw as { result: unknown };
-            return { data: body.result };
-          },
-        }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ id: number }>(['special'], '/special', {
+        transformer: (raw) => {
+          const body = raw as { result: unknown };
+          return { data: body.result };
+        },
+      }),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -120,8 +121,8 @@ describe('useQueryBase — transformers', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useQueryBase<{ id: number; name: string }>(['users', 1], '/users/1'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ id: number; name: string }>(['users', 1], '/users/1'),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -143,18 +144,17 @@ describe('useQueryBase — query params + cache key stability', () => {
       },
     });
 
-    const { result } = renderHookWithProviders(
-      () =>
-        hooks.useQueryBase(['users'], '/users', {
-          query: {
-            search: { name: 'ada' },
-            filter: { status: 'active' },
-            page: 1,
-            limit: 20,
-            sort: 'name:asc',
-          },
-          tuning: { debounceMs: 0, minSearchLength: 1 },
-        }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase(['users'], '/users', {
+        query: {
+          search: { name: 'ada' },
+          filter: { status: 'active' },
+          page: 1,
+          limit: 20,
+          sort: 'name:asc',
+        },
+        tuning: { debounceMs: 0, minSearchLength: 1 },
+      }),
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -176,15 +176,52 @@ describe('useQueryBase — query params + cache key stability', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () =>
-        hooks.useQueryBase(['users'], '/users', {
-          query: { search: { name: 'a' } },
-          tuning: { debounceMs: 0, minSearchLength: 3 },
-        }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase(['users'], '/users', {
+        query: { search: { name: 'a' } },
+        tuning: { debounceMs: 0, minSearchLength: 3 },
+      }),
     );
 
     await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('useQueryBase — query.extra precedence', () => {
+  it('typed fields win over a same-named key in extra', async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: [],
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<unknown[]>(['claims'], '/claims', {
+        query: { page: 2, limit: 10, extra: { page: 99, status: 'open' } },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(calls[0]?.params).toMatchObject({ page: 2, limit: 10, status: 'open' });
+  });
+
+  it('extra still supplies a key the typed fields leave unset', async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: [],
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<unknown[]>(['claims'], '/claims', {
+        query: { extra: { page: 99, includeArchived: true } },
+      }),
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(calls[0]?.params).toMatchObject({ page: 99, includeArchived: true });
   });
 });
