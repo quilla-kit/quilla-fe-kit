@@ -18,8 +18,8 @@ describe('usePostMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     let resolved: { id: string } | undefined;
@@ -41,8 +41,8 @@ describe('usePostMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePostMutationBase<void, { token: string }>('/login', { disabledAuth: true }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<void, { token: string }>('/login', { disabledAuth: true }),
     );
 
     await act(async () => {
@@ -62,8 +62,8 @@ describe('usePutMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users'),
     );
 
     await act(async () => {
@@ -124,6 +124,57 @@ describe('usePutMutationBase', () => {
       );
     });
   });
+
+  it('resolves the reporter route: id mid-path, with OCC and invalidation intact', async () => {
+    const queryClient = createQueryClient();
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: { ok: true },
+    }));
+    const hooks = createHooks(client);
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined);
+
+    const { result } = renderHookWithProviders(
+      () =>
+        hooks.usePutMutationBase<{ ok: boolean }, { note: string }>('/claims/:id/settle', {
+          occ: { versionKey: ({ id }) => ['claims', id] },
+          invalidate: [['claims']],
+        }),
+      { queryClient },
+    );
+    queryClient.setQueryData(['claims', 42], { data: { id: 42 }, version: 3 });
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 42, body: { note: 'paid' } });
+    });
+
+    expect(calls[0]?.method).toBe('PUT');
+    expect(calls[0]?.url).toBe('/claims/42/settle');
+    expect(calls[0]?.headers?.[OCC_HEADER]).toBe('"3"');
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolveUrl wins over basePath and is used verbatim', async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: { ok: true },
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+        resolveUrl: ({ id }) => `/claims/${id}/settle?raw=a/b`,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'a/b', body: { name: 'Ada' } });
+    });
+
+    expect(calls[0]?.url).toBe('/claims/a/b/settle?raw=a/b');
+  });
 });
 
 describe('usePatchMutationBase', () => {
@@ -135,8 +186,8 @@ describe('usePatchMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePatchMutationBase<void, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePatchMutationBase<void, { name: string }>('/users'),
     );
 
     await act(async () => {
@@ -154,8 +205,8 @@ describe('usePatchMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePatchMutationBase<void, { name: string }>('/orgs/:id/seats'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePatchMutationBase<void, { name: string }>('/orgs/:id/seats'),
     );
 
     await act(async () => {
@@ -175,8 +226,8 @@ describe('useDeleteMutationBase', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useDeleteMutationBase<void, string>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useDeleteMutationBase<void, string>('/users'),
     );
 
     await act(async () => {
@@ -212,6 +263,44 @@ describe('useDeleteMutationBase', () => {
     expect(calls[0]?.url).toBe('/users/3');
     expect(calls[0]?.headers?.[OCC_HEADER]).toBe('"4"');
   });
+  it('resolves placeholders from a caller-shaped object with no id', async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 204,
+      headers: {},
+      data: undefined,
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.useDeleteMutationBase<void, { orgId: string; seatId: number }>(
+        '/orgs/:orgId/seats/:seatId',
+      ),
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ orgId: 'acme', seatId: 9 });
+    });
+
+    expect(calls[0]?.url).toBe('/orgs/acme/seats/9');
+  });
+
+  it('rejects rather than sending /users/[object Object]', async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 204,
+      headers: {},
+      data: undefined,
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.useDeleteMutationBase<void, { orgId: string }>('/users'),
+    );
+
+    await act(async () => {
+      await expect(result.current.mutateAsync({ orgId: 'acme' })).rejects.toThrow(/\[url\]/);
+    });
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe('mutations — invalidate-on-success integration smoke', () => {
@@ -223,8 +312,8 @@ describe('mutations — invalidate-on-success integration smoke', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     await act(async () => {
@@ -247,8 +336,8 @@ describe('mutations — transformers', () => {
       mutationTransformer: (raw) => (raw as { payload: unknown }).payload,
     });
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     let resolved: { id: string } | undefined;
@@ -269,11 +358,10 @@ describe('mutations — transformers', () => {
       mutationTransformer: (raw) => (raw as { payload: unknown }).payload,
     });
 
-    const { result } = renderHookWithProviders(
-      () =>
-        hooks.usePostMutationBase<{ id: number }, { name: string }>('/special', {
-          transformer: (raw) => (raw as { result: unknown }).result,
-        }),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<{ id: number }, { name: string }>('/special', {
+        transformer: (raw) => (raw as { result: unknown }).result,
+      }),
     );
 
     let resolved: { id: number } | undefined;
@@ -292,8 +380,8 @@ describe('mutations — transformers', () => {
     }));
     const hooks = createHooks(client);
 
-    const { result } = renderHookWithProviders(
-      () => hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.usePostMutationBase<{ id: string }, { name: string }>('/users'),
     );
 
     let resolved: { id: string } | undefined;
@@ -317,8 +405,8 @@ describe('mutations — transformers', () => {
       },
     });
 
-    const { result } = renderHookWithProviders(
-      () => hooks.useDeleteMutationBase<void, string>('/users'),
+    const { result } = renderHookWithProviders(() =>
+      hooks.useDeleteMutationBase<void, string>('/users'),
     );
 
     await act(async () => {

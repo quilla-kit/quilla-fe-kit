@@ -6,6 +6,7 @@ import type { MutationTransformer } from './transformer.type.js';
 export type IdAndBody<TBody> = {
   readonly id: string | number;
   readonly body?: TBody;
+  readonly params?: Record<string, string | number>;
 };
 
 export type InvalidateKeys<TVars, TData> =

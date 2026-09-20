@@ -418,6 +418,23 @@ const { data, isLoading } = useQueryBase<RawUser, UserVm>(
 receives that value as its input. Both run once per fetch inside the `queryFn`
 — not on every render.
 
+### `query.extra` — arbitrary parameters
+
+`search`, `filter`, `page`, `limit` and `sort` are the shapes the serializer
+understands (see *Query-string conventions* in `@quilla-fe-kit/api-client`).
+Anything else goes in `extra`, which is merged flat into the query string:
+
+```ts
+query: { page: 1, extra: { includeArchived: true, projection: 'summary' } },
+// → page=1&includeArchived=true&projection=summary
+```
+
+The typed fields **win** on a key collision: `extra: { page: 99 }` alongside
+`page: 1` sends `page=1`. `extra` still supplies any key the typed fields leave
+unset. To change the *names* of the paging parameters on the wire, configure
+`paginationKeys` / `searchSuffix` on the client's `querySerializer` rather than
+routing around them through `extra`.
+
 `transformer` overrides the factory-level `queryTransformer` for this specific
 call. Use it when one endpoint returns a different envelope shape than the rest.
 See [Response transformers](#response-transformers) for the full pattern.
@@ -563,11 +580,65 @@ import type {
 Four method-specific hooks. POST is for creation (no version yet);
 PUT/PATCH/DELETE accept an optional `occ` resolver for `If-Match` headers.
 
+### How the request URL is built
+
+PUT, PATCH and DELETE take a `basePath` and resolve the URL in this order:
+
+1. **`resolveUrl(vars)`**, if supplied — its result is used **verbatim**.
+2. **Placeholders in `basePath`** — any `/:name/` segment is substituted.
+3. **Neither** — the id is appended: `` `${basePath}/${id}` ``.
+
+Substituted values are percent-encoded by the kit. `resolveUrl` output is not
+touched — the caller built the string, so the caller owns its encoding.
+
+Placeholder names are free-form and are resolved against the mutation variables
+themselves, with `params` taking precedence:
+
+```ts
+// 3. Append (the default)
+usePutMutationBase<User, UpdateUserBody>('/users');
+mutate({ id: 42, body });                      // → PUT /users/42
+
+// 2a. Identifier mid-path
+usePutMutationBase<Claim, SettleBody>('/claims/:id/settle');
+mutate({ id: 42, body });                      // → PUT /claims/42/settle
+
+// 2b. Free-form names, several of them
+useDeleteMutationBase<void, { orgId: string; seatId: number }>(
+  '/orgs/:orgId/seats/:seatId',
+);
+mutate({ orgId: 'acme', seatId: 9 });          // → DELETE /orgs/acme/seats/9
+
+// 2c. Free-form name alongside an id (PUT/PATCH vars are always `{ id, body?, params? }`)
+usePutMutationBase<Claim, SettleBody>('/claims/:claimId/settle');
+mutate({ id: 42, params: { claimId: 42 }, body });
+
+// 1. Anything the template can't express
+usePutMutationBase<Claim, SettleBody>('/claims', {
+  resolveUrl: ({ id }) => `/claims/${id};v=2/settle`,
+});
+```
+
+`occ`, `invalidate`, `headers` and `transformer` are unaffected by which branch
+builds the URL — they all receive the same `vars`.
+
+A placeholder that resolves to `undefined`, `null` or `''` throws a `[url]`
+error naming it, and so does an appended id that is missing. The throw happens
+inside `mutationFn`, so it surfaces as a rejected mutation, not a render error.
+
+POST takes a fixed `url` rather than a `basePath` (there is no id yet), but it
+accepts `resolveUrl` for routes that interpolate something from the body.
+
 ### POST
 
 ```ts
 const create = usePostMutationBase<CreatedUser, CreateUserBody>('/users');
 create.mutate({ name: 'Ada' });
+
+// Nested creation: derive the path from the variables
+const addMember = usePostMutationBase<Member, { orgId: string; email: string }>('/members', {
+  resolveUrl: ({ orgId }) => `/orgs/${orgId}/members`,
+});
 
 // Login / refresh: skip the auth decorator
 const login = usePostMutationBase<TokenPair, LoginBody>('/auth/login', {
@@ -587,14 +658,10 @@ replace.mutate({ id: userId, body: { name: 'Ada' } });
 
 ### PATCH (partial)
 
-`basePath` can include `:id` (substituted) or be a plain prefix (id is appended):
-
 ```ts
-// Plain prefix
 usePatchMutationBase<User, PartialUserBody>('/users');
 // PATCH /users/123
 
-// Templated
 usePatchMutationBase<Seat, SeatBody>('/orgs/:id/seats');
 // PATCH /orgs/acme/seats
 ```
@@ -611,6 +678,12 @@ const safeRemove = useDeleteMutationBase<void, { id: number }>('/users', {
   occ: { versionKey: ({ id }) => userKeys.detail(id) },
 });
 safeRemove.mutate({ id: 1 });
+
+// ...or any shape at all, when the path names its own placeholders
+const removeSeat = useDeleteMutationBase<void, { orgId: string; seatId: number }>(
+  '/orgs/:orgId/seats/:seatId',
+);
+removeSeat.mutate({ orgId: 'acme', seatId: 9 });
 ```
 
 ## `createQueryKeys`
@@ -774,12 +847,13 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ### Helpers
 - `buildOCCHeaders(resolver, vars)` — for custom mutations; reads from the singleton cache
+- `resolveMutationUrl(basePath, vars)` — the placeholder/append URL ladder, for custom mutations
 
 ### Types
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
 - `QueryInvalidator`
 - `CreateQueryClientConfig`, plus the four event-handler aliases
-- `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`
+- `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
 - `QueryKeyFactory`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
 - `HooksConfig`, `QueryTransformer`, `MutationTransformer`, `QueryTransformResult`

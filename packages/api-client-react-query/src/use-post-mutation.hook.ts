@@ -1,6 +1,11 @@
 import type { HttpClient, HttpHeaders, HttpRequestBody } from '@quilla-fe-kit/api-client';
-import { useMutation, type UseMutationOptions } from '@tanstack/react-query';
-import { applyMutationTransformer, buildMutationOnSuccess, type InvalidateKeys } from './mutation.type.js';
+import { type UseMutationOptions, useMutation } from '@tanstack/react-query';
+import type { UrlResolver } from './mutation-url.helper.js';
+import {
+  type InvalidateKeys,
+  applyMutationTransformer,
+  buildMutationOnSuccess,
+} from './mutation.type.js';
 import type { MutationTransformer } from './transformer.type.js';
 
 export type UsePostMutationOptions<TData, TVars, TError> = Omit<
@@ -11,6 +16,7 @@ export type UsePostMutationOptions<TData, TVars, TError> = Omit<
   readonly disabledAuth?: boolean;
   readonly invalidate?: InvalidateKeys<TVars, TData>;
   readonly transformer?: MutationTransformer;
+  readonly resolveUrl?: UrlResolver<TVars>;
 };
 
 export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
@@ -19,13 +25,21 @@ export const usePostMutationBase = <TData, TVars = unknown, TError = Error>(
   options: UsePostMutationOptions<TData, TVars, TError> = {},
   defaultTransformer?: MutationTransformer,
 ) => {
-  const { headers, disabledAuth, invalidate, onSuccess: userOnSuccess, transformer, ...rest } = options;
+  const {
+    headers,
+    disabledAuth,
+    invalidate,
+    onSuccess: userOnSuccess,
+    transformer,
+    resolveUrl,
+    ...rest
+  } = options;
 
   return useMutation<TData, TError, TVars>({
     mutationFn: async (vars) => {
       const response = await client.request<unknown>({
         method: 'POST',
-        url,
+        url: resolveUrl?.(vars) ?? url,
         body: vars as HttpRequestBody,
         ...(headers ? { headers } : {}),
         ...(disabledAuth ? { disabledAuth: true } : {}),
