@@ -307,6 +307,20 @@ createHttpClient({ baseUrl, querySerializer: new DottedSerializer() });
 `encodeValue`, `conventions` and `isPlainObject` are `protected`, so a subclass
 inherits search, filter, pagination and array-repeat handling unchanged.
 
+Scope an override to a **convention, not to a param name**. The serializer sits
+in the transport layer, which every request in the app passes through, so rules
+that hold app-wide belong here — "nested objects encode as `k:v` pairs", "dates
+serialize as ISO". A rule keyed to one parameter does not:
+
+```ts
+// Don't: puts one feature's vocabulary into a shared foundation layer.
+if (keyPath.startsWith('expand')) { /* ... */ }
+```
+
+That is feature vocabulary, and encoding it here makes the transport depend on
+the shape of a single feature. Flatten those params at the call site instead,
+where the vocabulary already lives.
+
 `Date` and other class instances are deliberately untouched — they still go
 through `String(value)`, which yields a locale string. Choosing ISO instead is
 a wire convention, so `encodeValue` is the place to make it.
