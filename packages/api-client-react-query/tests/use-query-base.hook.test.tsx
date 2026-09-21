@@ -1,6 +1,7 @@
 import { waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createHooks } from '../src/hooks.factory.js';
+import { createQueryClient, resetQueryClient } from '../src/query-client.factory.js';
 import { createFakeHttpClient, renderHookWithProviders } from './helpers/render.helper.js';
 
 describe('useQueryBase — basic fetch', () => {
@@ -223,5 +224,83 @@ describe('useQueryBase — query.extra precedence', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(calls[0]?.params).toMatchObject({ page: 99, includeArchived: true });
+  });
+});
+
+describe('useQueryBase — cancellation', () => {
+  it("forwards TanStack's AbortSignal to the http client", async () => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: { ok: true },
+    }));
+    const hooks = createHooks(client);
+
+    const { result } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ ok: boolean }>(['cancel', 1], '/cancel'),
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect(calls[0]?.signal?.aborted).toBe(false);
+  });
+
+  it('aborts the in-flight request when the query is cancelled', async () => {
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const { client, calls } = createFakeHttpClient(async () => {
+      await blocked;
+      return { status: 200, headers: {}, data: { ok: true } };
+    });
+    const hooks = createHooks(client);
+
+    const { queryClient } = renderHookWithProviders(() =>
+      hooks.useQueryBase<{ ok: boolean }>(['cancel', 2], '/cancel'),
+    );
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]?.signal?.aborted).toBe(false);
+
+    await queryClient.cancelQueries({ queryKey: ['cancel', 2] });
+    expect(calls[0]?.signal?.aborted).toBe(true);
+
+    release?.();
+  });
+});
+
+describe('useQueryBase — cancellation under the real retry policy', () => {
+  afterEach(() => {
+    resetQueryClient();
+  });
+
+  it('does not retry an aborted request', async () => {
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const { client, calls } = createFakeHttpClient(async (config) => {
+      await blocked;
+      config.signal?.throwIfAborted();
+      return { status: 200, headers: {}, data: { ok: true } };
+    });
+    const hooks = createHooks(client);
+
+    resetQueryClient();
+    const queryClient = createQueryClient();
+
+    renderHookWithProviders(() => hooks.useQueryBase<{ ok: boolean }>(['noretry'], '/noretry'), {
+      queryClient,
+    });
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await queryClient.cancelQueries({ queryKey: ['noretry'] });
+    release?.();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toHaveLength(1);
   });
 });

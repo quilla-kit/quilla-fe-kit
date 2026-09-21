@@ -14,3 +14,4 @@ export { ValidationError } from './validation.error.js';
 export { BusinessRuleError } from './business-rule.error.js';
 export { InternalServerError } from './internal-server.error.js';
 export { NetworkError } from './network.error.js';
+export { QuerySerializationError } from './query-serialization.error.js';

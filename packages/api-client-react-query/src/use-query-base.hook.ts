@@ -1,32 +1,11 @@
-import {
-  type HttpClient,
-  type HttpHeaders,
-  type HttpQueryParams,
-  parseETagHeaderValue,
-} from '@quilla-fe-kit/api-client';
-import { type QueryKey, useQuery, type UseQueryOptions } from '@tanstack/react-query';
+import type { HttpClient, HttpHeaders } from '@quilla-fe-kit/api-client';
+import { type QueryKey, type UseQueryOptions, useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
+import { fetchQueryBase } from './query-base-fetch.helper.js';
+import type { QueryBaseInput, QueryBaseTuning } from './query-base-input.type.js';
 import type { QueryBaseResult } from './query-base-result.type.js';
 import type { QueryTransformer } from './transformer.type.js';
-import { useDebouncedValue } from './use-debounced-value.hook.js';
-
-const SEARCH_KEY = 'search';
-const DEFAULT_DEBOUNCE_MS = 500;
-const DEFAULT_MIN_SEARCH_LENGTH = 3;
-
-export type QueryBaseInput = {
-  readonly search?: Record<string, unknown>;
-  readonly filter?: Record<string, unknown>;
-  readonly page?: number;
-  readonly limit?: number;
-  readonly sort?: string | readonly string[];
-  readonly extra?: Record<string, unknown>;
-};
-
-export type QueryBaseTuning = {
-  readonly debounceMs?: number;
-  readonly minSearchLength?: number;
-};
+import { useQueryBaseParams } from './use-query-base-params.hook.js';
 
 export type UseQueryBaseOptions<TRaw, TModel = TRaw, TError = Error> = Omit<
   UseQueryOptions<QueryBaseResult<TModel>, TError, QueryBaseResult<TModel>, QueryKey>,
@@ -57,77 +36,23 @@ export const useQueryBase = <TRaw, TModel = TRaw, TError = Error>(
   } = options;
 
   const effectiveTransformer = transformer ?? defaultTransformer;
+  const { params, inferredEnabled } = useQueryBaseParams(rawQuery, tuning);
 
-  const debounceMs = tuning?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-  const minSearchLength = tuning?.minSearchLength ?? DEFAULT_MIN_SEARCH_LENGTH;
-
-  // Stabilize the input object's reference so downstream debounce + memos don't
-  // thrash when consumers pass inline literals each render.
-  const queryHash = JSON.stringify(rawQuery);
-  const stableQuery = useMemo(() => rawQuery, [queryHash]);
-
-  const debouncedSearch = useDebouncedValue(stableQuery.search, debounceMs);
-
-  const { params, inferredEnabled } = useMemo(() => {
-    const hasSearch = stableQuery.search && Object.keys(stableQuery.search).length > 0;
-    const searchActive =
-      !!debouncedSearch &&
-      Object.values(debouncedSearch).some(
-        (v) => typeof v === 'string' && v.length >= minSearchLength,
-      );
-    const cleanedSearch = stripEmptyStrings(debouncedSearch);
-
-    // `extra` goes first so the typed fields win on a key collision: a stray
-    // `extra.page` must not silently reshape pagination.
-    const next: HttpQueryParams = { ...(stableQuery.extra ?? {}) };
-    if (cleanedSearch && Object.keys(cleanedSearch).length > 0) next[SEARCH_KEY] = cleanedSearch;
-    if (stableQuery.filter && Object.keys(stableQuery.filter).length > 0)
-      next.filter = stableQuery.filter;
-    if (stableQuery.page !== undefined) next.page = stableQuery.page;
-    if (stableQuery.limit !== undefined) next.limit = stableQuery.limit;
-    if (stableQuery.sort !== undefined) next.sort = stableQuery.sort;
-
-    return { params: next, inferredEnabled: hasSearch ? searchActive : true };
-  }, [stableQuery, debouncedSearch, minSearchLength]);
-
-  const queryKey: QueryKey = useMemo(
-    () => [...(baseKey as unknown[]), params],
-    [baseKey, params],
-  );
+  const queryKey: QueryKey = useMemo(() => [...(baseKey as unknown[]), params], [baseKey, params]);
 
   return useQuery<QueryBaseResult<TModel>, TError, QueryBaseResult<TModel>, QueryKey>({
     queryKey,
-    queryFn: async () => {
-      const response = await client.request<unknown>({
+    queryFn: ({ signal }) =>
+      fetchQueryBase<TRaw, TModel>({
+        client,
         url,
-        ...(Object.keys(params).length > 0 ? { params } : {}),
+        params,
+        signal,
         ...(headers ? { headers } : {}),
-      });
-
-      const version = parseETagHeaderValue(response.headers.etag);
-
-      const rawData = effectiveTransformer
-        ? effectiveTransformer(response.data).data
-        : response.data;
-      const raw = rawData as TRaw;
-      const mapped = mapper ? mapper(raw) : (raw as unknown as TModel);
-
-      return { data: mapped, version };
-    },
-    enabled: userEnabled !== undefined ? userEnabled : inferredEnabled,
+        ...(effectiveTransformer ? { transformer: effectiveTransformer } : {}),
+        ...(mapper ? { mapper } : {}),
+      }),
+    enabled: userEnabled ?? inferredEnabled,
     ...restOptions,
   });
-};
-
-const stripEmptyStrings = (
-  source: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined => {
-  if (!source) return source;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(source)) {
-    if (v === undefined || v === null) continue;
-    if (typeof v === 'string' && v === '') continue;
-    out[k] = v;
-  }
-  return out;
 };

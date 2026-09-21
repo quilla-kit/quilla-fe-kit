@@ -2,6 +2,7 @@ import {
   ConflictError,
   ForbiddenError,
   NetworkError,
+  QuerySerializationError,
   UnauthorizedError,
   ValidationError,
 } from '@quilla-fe-kit/errors';
@@ -98,6 +99,7 @@ describe('createQueryClient retry policy', () => {
     [new ForbiddenError({ message: 'x', httpStatus: 403, requestUrl: '/x' })],
     [new ConflictError({ message: 'x', httpStatus: 409, requestUrl: '/x' })],
     [new ValidationError({ message: 'x', httpStatus: 422, requestUrl: '/x' })],
+    [new QuerySerializationError({ message: 'nested param' })],
   ])('does not retry on %s', (error) => {
     const retry = makeRetryFn();
     expect(typeof retry).toBe('function');

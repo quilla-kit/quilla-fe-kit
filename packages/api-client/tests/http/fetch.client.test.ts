@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { ConflictError, NetworkError, ValidationError } from '@quilla-fe-kit/errors';
+import { describe, expect, it } from 'vitest';
 import { EnvelopeHttpErrorParser } from '../../src/http/envelope.parser.js';
 import { FetchHttpClient } from '../../src/http/fetch.client.js';
 import { RepeatParamsSerializer } from '../../src/http/repeat-params.serializer.js';
@@ -110,9 +110,7 @@ describe('FetchHttpClient — response parsing', () => {
   });
 
   it('exposes response headers as a flat record', async () => {
-    const { client } = buildClient(() =>
-      fakeResponse({ headers: { etag: '"7"' }, body: {} }),
-    );
+    const { client } = buildClient(() => fakeResponse({ headers: { etag: '"7"' }, body: {} }));
     const res = await client.request({ url: '/x' });
     expect(res.headers.etag).toBe('"7"');
   });
@@ -235,5 +233,34 @@ describe('FetchHttpClient — signal + timeout', () => {
     const { client, fetchStub } = buildClient(() => fakeResponse({ body: {} }));
     await client.request({ url: '/x' });
     expect(fetchStub.calls[0]?.init.signal).toBeUndefined();
+  });
+
+  it('rejects with NetworkError once a user signal actually fires', async () => {
+    const { client } = buildClient((_url, init) => {
+      const signal = init.signal as AbortSignal;
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException('Request aborted', 'AbortError');
+    });
+    const ctrl = new AbortController();
+    ctrl.abort();
+
+    await expect(client.request({ url: '/x', signal: ctrl.signal })).rejects.toBeInstanceOf(
+      NetworkError,
+    );
+  });
+
+  it('combines a user signal with timeoutMs so either can abort the request', async () => {
+    const { client, fetchStub } = buildClient(() => fakeResponse({ body: {} }));
+    const ctrl = new AbortController();
+    await client.request({ url: '/x', signal: ctrl.signal, timeoutMs: 50_000 });
+
+    const composed = fetchStub.calls[0]?.init.signal as AbortSignal;
+    expect(composed).toBeInstanceOf(AbortSignal);
+    expect(composed).not.toBe(ctrl.signal);
+    expect(composed.aborted).toBe(false);
+
+    ctrl.abort();
+    expect(composed.aborted).toBe(true);
   });
 });

@@ -12,7 +12,11 @@ export type { HttpErrorParser } from './http-error-parser.interface.js';
 export type { QueryStringSerializer } from './query-string-serializer.interface.js';
 
 export { EnvelopeHttpErrorParser } from './envelope.parser.js';
-export { RepeatParamsSerializer, type QueryConventions } from './repeat-params.serializer.js';
+export {
+  RepeatParamsSerializer,
+  DEFAULT_QUERY_CONVENTIONS,
+  type QueryConventions,
+} from './repeat-params.serializer.js';
 
 export { FetchHttpClient } from './fetch.client.js';
 export { AuthenticatedHttpClient } from './authenticated.client.js';

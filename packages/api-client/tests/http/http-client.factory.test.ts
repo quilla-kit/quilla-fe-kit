@@ -1,3 +1,4 @@
+import { QuerySerializationError } from '@quilla-fe-kit/errors';
 import { describe, expect, it } from 'vitest';
 import { AuthenticatedHttpClient } from '../../src/http/authenticated.client.js';
 import { FetchHttpClient } from '../../src/http/fetch.client.js';
@@ -29,9 +30,7 @@ describe('createHttpClient', () => {
       url: '/users',
       params: { search: { name: 'foo' }, page: 1, limit: 20 },
     });
-    expect(fetchStub.calls[0]?.url).toBe(
-      'https://api/users?name__contains=foo&page=1&pageSize=20',
-    );
+    expect(fetchStub.calls[0]?.url).toBe('https://api/users?name__contains=foo&page=1&pageSize=20');
   });
 
   it('accepts a partial QueryConventions config and applies it', async () => {
@@ -57,5 +56,17 @@ describe('createHttpClient', () => {
     });
     await client.request({ url: '/u', params: { page: 5, limit: 10 } });
     expect(fetchStub.calls[0]?.url).toBe('https://api/u?p=5&sz=10');
+  });
+});
+
+describe('createHttpClient — nested query params', () => {
+  it('propagates QuerySerializationError out of client.request', async () => {
+    const fetchStub = stubFetch(() => fakeResponse({ body: {} }));
+    const client = createHttpClient({ baseUrl: 'https://api', fetchImpl: fetchStub.impl });
+
+    await expect(
+      client.request({ url: '/frames', params: { expand: { frameId: 'f1' } } }),
+    ).rejects.toBeInstanceOf(QuerySerializationError);
+    expect(fetchStub.calls).toHaveLength(0);
   });
 });

@@ -439,6 +439,139 @@ routing around them through `extra`.
 call. Use it when one endpoint returns a different envelope shape than the rest.
 See [Response transformers](#response-transformers) for the full pattern.
 
+### Request cancellation
+
+`useQueryBase` forwards TanStack's `AbortSignal` to the HTTP client, so React
+Query's built-in cancellation now reaches the network: a superseded query (key
+change), an inactive one, and `queryClient.cancelQueries(...)` all abort the
+in-flight request instead of merely discarding its result.
+
+This matters for read-heavy screens where a user switches targets faster than
+the server responds — previously every superseded request stayed in flight and
+occupied a connection slot.
+
+An aborted request surfaces as `NetworkError`, but React Query settles the query
+as cancelled first, so the default retry policy does **not** retry it. If you
+call `client.request` directly with your own signal, pass `timeoutMs` too if you
+want both: `composeSignal` merges them with `AbortSignal.any`.
+
+## `useInfiniteQueryBase`
+
+The accumulating counterpart to `useQueryBase`, for chunked or paged reads that
+should live in the query cache rather than in a merged store you maintain
+yourself. It carries the same mapper, transformer, envelope, debounce and
+cancellation handling.
+
+```ts
+const { data, fetchNextPage, hasNextPage, isFetchingNextPage } =
+  hooks.useInfiniteQueryBase<PagedFrames, Frame[]>(frameKeys.lists(), '/frames', {
+    query: { limit: 20, filter: { status: 'active' } },
+    mapper: (raw) => raw.items,
+    initialPageParam: { page: 1 },
+    getNextPageParam: (page, allPages, pageParam) =>
+      allPages.length < page.pagination.totalPages ? { page: pageParam.page + 1 } : undefined,
+  });
+
+const frames = data?.pages.flatMap((p) => p.data) ?? [];
+```
+
+`data.pages` is an array of `QueryBaseResult<TModel>` — the same `{ data, version }`
+shape `useQueryBase` returns, one per page. Flattening is yours to do, because
+only you know whether pages concatenate, merge or dedupe.
+
+### Choosing the backend's param name
+
+The kit does not impose a pagination vocabulary. There are three routes to the
+param name your API expects:
+
+| Route | Page param | Wire result |
+|---|---|---|
+| Canonical dimensions | `{ page: 2, limit: 20 }` | `page=2&pageSize=20` (renamed by `paginationKeys`) |
+| Any other name | `{ cursor: 'c2' }` | `cursor=c2` (verbatim) |
+| Explicit bag | `{ extra: { after: 'x' } }` | `after=x` (verbatim) |
+
+**Canonical** — `page`, `limit` and `sort` are the kit's internal names, remapped
+on the wire by the client's `paginationKeys`:
+
+```ts
+createHttpClient({ baseUrl, querySerializer: { paginationKeys: { page: 'p', limit: 'size', sort: 'order' } } });
+
+hooks.useInfiniteQueryBase<Paged>(keys.lists(), '/frames', {
+  initialPageParam: { page: 1, limit: 20 },
+  getNextPageParam: (page, all, param) => ({ page: param.page + 1 }),
+});
+// → /frames?p=1&size=20, then /frames?p=2&size=20
+```
+
+**Any other name** — cursor-based or non-English vocabularies are first-class and
+need no `extra` wrapper:
+
+```ts
+hooks.useInfiniteQueryBase<CursorPage>(keys.lists(), '/graph', {
+  initialPageParam: { cursor: null as string | null },
+  getNextPageParam: (page) => (page.next ? { cursor: page.next } : undefined),
+});
+// → /graph?cursor=, then /graph?cursor=c2
+
+hooks.useInfiniteQueryBase<Paged>(keys.lists(), '/frames', {
+  initialPageParam: { pagina: 1 },
+  getNextPageParam: (page) => ({ pagina: page.pagina + 1 }),
+});
+// → /frames?pagina=1, then /frames?pagina=2
+```
+
+**Explicit bag** — use `extra` when a key would collide with a canonical name, or
+when the page param is built dynamically.
+
+### Precedence
+
+Later wins:
+
+```
+query.extra  <  query.{search,filter,page,limit,sort}  <  pageParam.extra  <  pageParam.{named keys}
+```
+
+The page param beating the seed query is the point of paging: `query: { page: 1 }`
+with `initialPageParam: { page: 7 }` requests page 7.
+
+### `version` is per page
+
+Each page carries the `version` parsed from that response's ETag. There is no
+aggregate version — N ETags have no meaningful join. Note that setting `maxPages`
+lets React Query evict pages, and an evicted page takes its `version` with it, so
+don't treat `pages[i].version` as a durable OCC token for a row.
+
+### Query keys
+
+The hook appends an `'infinite'` segment to whatever `baseKey` you pass, so an
+infinite query and a `useQueryBase` list sharing a base key cannot collide on one
+cache entry with two incompatible shapes. Pass the same key you would give
+`useQueryBase` — typically `keys.lists()` — and the cache entry becomes
+`[domain, 'list', 'infinite', params]`.
+
+Because the segment is appended rather than replacing anything, existing prefix
+invalidation keeps working: `all()` and `lists()` both still match. To target only
+the infinite queries, build the prefix yourself:
+
+```ts
+queryInvalidator.invalidate([[...userKeys.lists(), INFINITE_KEY_SEGMENT]]);
+```
+
+### What you supply, what the kit owns
+
+You supply `initialPageParam`, `getNextPageParam` (optionally
+`getPreviousPageParam`), a transformer that folds your envelope — pagination block
+included — into `TRaw`, and the flattening of `data.pages`.
+
+The kit owns debounce and search gating, `enabled` inference, the precedence rules
+above, query-key construction, mapping the page param onto flat wire fields, the
+per-page ETag `version`, `AbortSignal` forwarding, and transformer resolution. It
+never inspects your envelope.
+
+**Known limitation:** a cursor delivered in a *response header* (`Link`,
+`X-Next-Cursor`) is not visible to `getNextPageParam` — only the ETag is read from
+headers. Cursors must be in the response body.
+
 ## Response transformers
 
 Most real backends don't return bare domain objects — they wrap responses in
@@ -711,6 +844,10 @@ React Query invalidates everything whose key starts with the given prefix:
 | `queryInvalidator.invalidate([userKeys.lists()])` | all list queries |
 | `queryInvalidator.invalidate([userKeys.detail(42)])` | one detail entry |
 
+`useInfiniteQueryBase` appends an `'infinite'` segment to the key you give it, so
+passing `lists()` yields `['users', 'list', 'infinite', params]` — still matched by
+both `all()` and `lists()`.
+
 `lists()` is the right invalidation target after a create or delete; `detail(id)`
 after an update.
 
@@ -840,6 +977,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ### Hooks (returned by `createHooks`, destructure and import by name)
 - `useQueryBase<TRaw, TModel?, TError?>(baseKey, url, options?)`
+- `useInfiniteQueryBase<TRaw, TModel?, TError?, TPageParam?>(baseKey, url, options)`
 - `usePostMutationBase<TData, TVars?, TError?>(url, options?)`
 - `usePutMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `usePatchMutationBase<TData, TBody?, TError?>(basePath, options?)`
@@ -851,10 +989,11 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ### Types
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
+- `QueryBasePageParam`, `QueryBasePageParamFn<...>`, `UseInfiniteQueryBaseOptions<...>`
 - `QueryInvalidator`
 - `CreateQueryClientConfig`, plus the four event-handler aliases
 - `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
-- `QueryKeyFactory`
+- `QueryKeyFactory`, `INFINITE_KEY_SEGMENT`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
 - `HooksConfig`, `QueryTransformer`, `MutationTransformer`, `QueryTransformResult`
 

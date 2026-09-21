@@ -1,7 +1,15 @@
 import type { HttpClient } from '@quilla-fe-kit/api-client';
 import type { QueryKey } from '@tanstack/react-query';
+import type { QueryBasePageParam } from './query-base-input.type.js';
 import type { HooksConfig } from './transformer.type.js';
-import { type UseDeleteMutationOptions, useDeleteMutationBase } from './use-delete-mutation.hook.js';
+import {
+  type UseDeleteMutationOptions,
+  useDeleteMutationBase,
+} from './use-delete-mutation.hook.js';
+import {
+  type UseInfiniteQueryBaseOptions,
+  useInfiniteQueryBase,
+} from './use-infinite-query-base.hook.js';
 import { type UsePatchMutationOptions, usePatchMutationBase } from './use-patch-mutation.hook.js';
 import { type UsePostMutationOptions, usePostMutationBase } from './use-post-mutation.hook.js';
 import { type UsePutMutationOptions, usePutMutationBase } from './use-put-mutation.hook.js';
@@ -14,6 +22,17 @@ export function createHooks(client: HttpClient, config: HooksConfig = {}) {
       url: string,
       options?: UseQueryBaseOptions<TRaw, TModel, TError>,
     ) => useQueryBase(client, baseKey, url, options, config.queryTransformer),
+
+    useInfiniteQueryBase: <
+      TRaw,
+      TModel = TRaw,
+      TError = Error,
+      TPageParam extends QueryBasePageParam = QueryBasePageParam,
+    >(
+      baseKey: QueryKey,
+      url: string,
+      options: UseInfiniteQueryBaseOptions<TRaw, TModel, TError, TPageParam>,
+    ) => useInfiniteQueryBase(client, baseKey, url, options, config.queryTransformer),
 
     usePostMutationBase: <TData, TVars = unknown, TError = Error>(
       url: string,
