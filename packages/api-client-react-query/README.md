@@ -457,10 +457,16 @@ want both: `composeSignal` merges them with `AbortSignal.any`.
 
 ## `useInfiniteQueryBase`
 
-The accumulating counterpart to `useQueryBase`, for chunked or paged reads that
-should live in the query cache rather than in a merged store you maintain
-yourself. It carries the same mapper, transformer, envelope, debounce and
-cancellation handling.
+The accumulating counterpart to `useQueryBase`, for walking successive pages of
+**one** query key — a catalogue, a feed, a result set — so the accumulation lives
+in the query cache instead of a store you maintain yourself. It carries the same
+mapper, transformer, envelope, debounce and cancellation handling.
+
+It is not a general merge layer. Assembling a single view from *heterogeneous*
+request shapes — different endpoints, different payload shapes, joined into a
+tree — is not page accumulation: each shape wants its own cache entry, and the
+joining is application state that belongs in your own store. Use this hook for
+the paging parts and keep the assembly outside it.
 
 ```ts
 const { data, fetchNextPage, hasNextPage, isFetchingNextPage } =
