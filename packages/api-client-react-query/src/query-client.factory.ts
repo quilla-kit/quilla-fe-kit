@@ -5,6 +5,7 @@ import {
   ForbiddenError,
   NetworkError,
   NotFoundError,
+  QuerySerializationError,
   UnauthorizedError,
   ValidationError,
 } from '@quilla-fe-kit/errors';
@@ -15,7 +16,7 @@ import {
   QueryCache,
   QueryClient,
 } from '@tanstack/react-query';
-import { createQueryInvalidator, type QueryInvalidator } from './query-invalidator.factory.js';
+import { type QueryInvalidator, createQueryInvalidator } from './query-invalidator.factory.js';
 
 const NON_RETRYABLE = [
   UnauthorizedError,
@@ -25,6 +26,7 @@ const NON_RETRYABLE = [
   BusinessRuleError,
   ValidationError,
   ConflictError,
+  QuerySerializationError,
 ] as const;
 
 const isNonRetryable = (error: unknown): boolean =>
@@ -96,8 +98,7 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
       : {}),
     ...(config.onMutationSuccess
       ? {
-          onSuccess: (data, _vars, _ctx, mutation) =>
-            config.onMutationSuccess?.(data, mutation),
+          onSuccess: (data, _vars, _ctx, mutation) => config.onMutationSuccess?.(data, mutation),
         }
       : {}),
   });
@@ -126,7 +127,8 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
 
 export const getQueryClient = (): QueryClient => getInstance('getQueryClient').queryClient;
 
-export const getQueryInvalidator = (): QueryInvalidator => getInstance('getQueryInvalidator').queryInvalidator;
+export const getQueryInvalidator = (): QueryInvalidator =>
+  getInstance('getQueryInvalidator').queryInvalidator;
 
 export const queryInvalidator: QueryInvalidator = {
   invalidate: async (keys) => getQueryInvalidator().invalidate(keys),

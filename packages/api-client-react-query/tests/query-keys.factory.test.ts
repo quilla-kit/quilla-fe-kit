@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createQueryKeys } from '../src/query-keys.factory.js';
 import { resolveInvalidateKeys } from '../src/mutation.type.js';
+import { createQueryKeys } from '../src/query-keys.factory.js';
 
 describe('createQueryKeys', () => {
   const keys = createQueryKeys('users');
@@ -74,7 +74,10 @@ describe('resolveInvalidateKeys', () => {
   it('passes both vars and data to the resolver', () => {
     const captured: unknown[] = [];
     resolveInvalidateKeys(
-      (vars, data) => { captured.push(vars, data); return []; },
+      (vars, data) => {
+        captured.push(vars, data);
+        return [];
+      },
       'the-vars',
       'the-data',
     );

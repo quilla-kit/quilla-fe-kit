@@ -1,3 +1,4 @@
+import { QuerySerializationError } from '@quilla-fe-kit/errors';
 import type { HttpQueryParams } from './http-types.type.js';
 import type { QueryStringSerializer } from './query-string-serializer.interface.js';
 
@@ -8,13 +9,16 @@ export type QueryConventions = {
     readonly limit: string;
     readonly sort: string;
   };
-  readonly defaultLimit: number;
 };
 
 export const DEFAULT_QUERY_CONVENTIONS: QueryConventions = {
   searchSuffix: '__contains',
   paginationKeys: { page: 'page', limit: 'pageSize', sort: 'sort' },
-  defaultLimit: 20,
+};
+
+type FlatQueryValue = {
+  readonly value: unknown;
+  readonly path: string;
 };
 
 const PAGINATION_INPUT_KEYS = ['page', 'limit', 'sort'] as const;
@@ -23,44 +27,58 @@ const SEARCH_KEY = 'search';
 const FILTER_KEY = 'filter';
 
 export class RepeatParamsSerializer implements QueryStringSerializer {
-  private readonly conventions: QueryConventions;
+  protected readonly conventions: QueryConventions;
 
   constructor(conventions: Partial<QueryConventions> = {}) {
     this.conventions = {
       searchSuffix: conventions.searchSuffix ?? DEFAULT_QUERY_CONVENTIONS.searchSuffix,
       paginationKeys: {
         ...DEFAULT_QUERY_CONVENTIONS.paginationKeys,
-        ...(conventions.paginationKeys ?? {}),
+        ...conventions.paginationKeys,
       },
-      defaultLimit: conventions.defaultLimit ?? DEFAULT_QUERY_CONVENTIONS.defaultLimit,
     };
   }
 
   serialize(params: HttpQueryParams): string {
     if (!params) return '';
 
-    const flat = this.flatten(params);
     const parts: string[] = [];
 
-    for (const [key, value] of Object.entries(flat)) {
+    for (const [key, { value, path }] of this.flatten(params)) {
       if (value === null || value === undefined) continue;
       const encodedKey = encodeURIComponent(key);
 
       if (Array.isArray(value)) {
-        for (const item of value) {
+        for (const [index, item] of value.entries()) {
           if (item === null || item === undefined) continue;
-          parts.push(`${encodedKey}=${encodeURIComponent(String(item))}`);
+          parts.push(
+            `${encodedKey}=${encodeURIComponent(this.encodeValue(item, `${path}[${index}]`))}`,
+          );
         }
       } else {
-        parts.push(`${encodedKey}=${encodeURIComponent(String(value))}`);
+        parts.push(`${encodedKey}=${encodeURIComponent(this.encodeValue(value, path))}`);
       }
     }
 
     return parts.join('&');
   }
 
-  private flatten(params: NonNullable<HttpQueryParams>): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
+  // The seam for consumers whose API wants a non-flat encoding: override this and
+  // inherit search/filter/pagination/array handling instead of reimplementing
+  // QueryStringSerializer wholesale. `keyPath` is the caller's input path
+  // (`filter.age`, `tags[0]`), not the wire key, so diagnostics point at the call site.
+  protected encodeValue(value: unknown, keyPath: string): string {
+    if (this.isPlainObject(value)) {
+      throw new QuerySerializationError({
+        message: `Query param "${keyPath}" is a nested object; RepeatParamsSerializer emits a flat query string. Pre-flatten it (e.g. age__gte=18), override encodeValue, or pass a custom QueryStringSerializer.`,
+        context: { keyPath },
+      });
+    }
+    return String(value);
+  }
+
+  private flatten(params: NonNullable<HttpQueryParams>): Map<string, FlatQueryValue> {
+    const out = new Map<string, FlatQueryValue>();
     const { paginationKeys, searchSuffix } = this.conventions;
 
     for (const [key, value] of Object.entries(params)) {
@@ -68,31 +86,34 @@ export class RepeatParamsSerializer implements QueryStringSerializer {
 
       if (key === SEARCH_KEY && this.isPlainObject(value)) {
         for (const [searchKey, searchValue] of Object.entries(value)) {
-          out[`${searchKey}${searchSuffix}`] = searchValue;
+          out.set(`${searchKey}${searchSuffix}`, {
+            value: searchValue,
+            path: `${SEARCH_KEY}.${searchKey}`,
+          });
         }
         continue;
       }
 
       if (key === FILTER_KEY && this.isPlainObject(value)) {
         for (const [filterKey, filterValue] of Object.entries(value)) {
-          out[filterKey] = filterValue;
+          out.set(filterKey, { value: filterValue, path: `${FILTER_KEY}.${filterKey}` });
         }
         continue;
       }
 
       if (PAGINATION_INPUT_SET.has(key)) {
         const remapped = paginationKeys[key as (typeof PAGINATION_INPUT_KEYS)[number]];
-        out[remapped] = value;
+        out.set(remapped, { value, path: key });
         continue;
       }
 
-      out[key] = value;
+      out.set(key, { value, path: key });
     }
 
     return out;
   }
 
-  private isPlainObject(value: unknown): value is Record<string, unknown> {
+  protected isPlainObject(value: unknown): value is Record<string, unknown> {
     return (
       typeof value === 'object' &&
       value !== null &&

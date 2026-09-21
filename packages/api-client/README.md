@@ -273,6 +273,44 @@ const client = createHttpClient({
 });
 ```
 
+### Migration: nested objects now throw
+
+Values that are plain objects used to stringify to `[object Object]` and travel
+to the server as a meaningless query param. They now raise
+`QuerySerializationError` at the call site instead:
+
+```ts
+client.request({ url: '/frames', params: { expand: { frameId: 'f1' } } });
+// QuerySerializationError: Query param "expand" is a nested object; ...
+```
+
+This applies wherever a plain object reaches a value position — at the top
+level, inside `search` or `filter` (reported as `filter.age`), and inside an
+array (reported as `tags[1]`).
+
+To keep the previous lenient behaviour, or to encode nested objects your own
+way, override `encodeValue` rather than reimplementing the serializer:
+
+```ts
+class DottedSerializer extends RepeatParamsSerializer {
+  protected override encodeValue(value: unknown, keyPath: string): string {
+    if (this.isPlainObject(value)) {
+      return Object.entries(value).map(([k, v]) => `${k}:${v}`).join(',');
+    }
+    return super.encodeValue(value, keyPath);
+  }
+}
+
+createHttpClient({ baseUrl, querySerializer: new DottedSerializer() });
+```
+
+`encodeValue`, `conventions` and `isPlainObject` are `protected`, so a subclass
+inherits search, filter, pagination and array-repeat handling unchanged.
+
+`Date` and other class instances are deliberately untouched — they still go
+through `String(value)`, which yields a locale string. Choosing ISO instead is
+a wire convention, so `encodeValue` is the place to make it.
+
 Or pass an entire custom `QueryStringSerializer` instance for non-flat
 encoding (bracket convention, comma-joined arrays, etc.).
 
@@ -422,7 +460,9 @@ are lowercase.
 - `AuthenticatedHttpClient` — auth decorator
 - `SingleFlightTokenRefresher` — concurrent-safe refresh
 - `EnvelopeHttpErrorParser` — default error parser
-- `RepeatParamsSerializer` — default query serializer
+- `RepeatParamsSerializer` — default query serializer; override `encodeValue`
+  to change how a value is encoded
+- `DEFAULT_QUERY_CONVENTIONS` — the defaults `RepeatParamsSerializer` starts from
 
 You typically only need `createHttpClient`. The classes are exposed for
 consumers writing custom decorators or factory variants.
