@@ -1224,3 +1224,12 @@ see [Adding your own meta fields](#adding-your-own-meta-fields).
 `SharedMeta` and `QuillaMutationMeta` are exported if you want to reference
 the default vocabulary explicitly. TanStack's `QueryMeta` / `MutationMeta`
 are the full registered types, including your extensions.
+
+**Requires an ESM-typed project.** The augmentation targets
+`@tanstack/react-query`'s ESM type declarations. If TypeScript treats your
+files as CommonJS — `"moduleResolution": "NodeNext"` (or `"Node16"`) without
+`"type": "module"` in your `package.json` — it resolves TanStack's CommonJS
+declarations instead, and `meta` falls back to an untyped
+`Record<string, unknown>`, with no compile error. Use
+`"moduleResolution": "Bundler"` (the usual choice for bundled frontends) or
+add `"type": "module"`.
