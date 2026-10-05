@@ -25,21 +25,20 @@ Senior frontend engineers building production SPAs, SSR apps, or React-Native cl
 A typical authenticated app:
 
 ```tsx
+// lib/api.ts — the api layer owns the HTTP client, the QueryClient and the hooks
 import { createHttpClient } from '@quilla-fe-kit/api-client';
 import {
-  HttpClientProvider,
+  createHooks,
   createQueryClient,
-  useQueryBase,
-  usePutMutationBase,
+  createQueryKeys,
 } from '@quilla-fe-kit/api-client-react-query';
 import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
-import { QueryClientProvider } from '@tanstack/react-query';
 
 const httpClient = createHttpClient({
   baseUrl: 'https://api.example.com',
   storage: localStorageTokenStorage(),
   refreshEndpoint: async (refreshToken) => {
-    const res = await fetch('/auth/refresh', {
+    const res = await fetch('https://api.example.com/auth/refresh', {
       method: 'POST',
       headers: { Authorization: `Bearer ${refreshToken}` },
     });
@@ -47,24 +46,32 @@ const httpClient = createHttpClient({
   },
 });
 
-const queryClient = createQueryClient({
+export const queryClient = createQueryClient({
   onMutationSuccess: (_data, mutation) => {
     if (mutation.meta?.showSuccess) toast.success('Saved');
   },
 });
 
+export const { useQueryBase, usePutMutationBase } = createHooks(httpClient);
+export const userKeys = createQueryKeys('users');
+```
+
+```tsx
+// App.tsx
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient, usePutMutationBase, useQueryBase, userKeys } from './lib/api';
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <HttpClientProvider client={httpClient}>
-      <UserProfile id={1} />
-    </HttpClientProvider>
+    <UserProfile id={1} />
   </QueryClientProvider>
 );
 
 const UserProfile = ({ id }: { id: number }) => {
-  const { data, isLoading } = useQueryBase<User>(['users', id], `/users/${id}`);
+  const { data, isLoading } = useQueryBase<User>(userKeys.detail(id), `/users/${id}`);
   const update = usePutMutationBase<User, UpdateUserBody>('/users', {
-    occ: { versionKey: ({ id }) => ['users', id] },
+    occ: { versionKey: ({ id }) => userKeys.detail(id) },
+    invalidate: ({ id }) => [userKeys.detail(id), userKeys.lists()],
     meta: { showSuccess: true },
   });
 
@@ -79,7 +86,7 @@ const UserProfile = ({ id }: { id: number }) => {
 };
 ```
 
-End-to-end: `Authorization: Bearer` attached automatically, single-flight refresh on 401 retry, `If-Match` header attached automatically on PUT (via the cached version from the previous GET), `412 → ConflictError` mapping, mutation-meta-routed toast — wired from primitives, not inherited from a framework.
+End-to-end: `Authorization: Bearer` attached automatically, single-flight refresh on 401 retry, `If-Match` header attached automatically on PUT (via the cached version from the previous GET), `412 → ConflictError` mapping, cache invalidation after the mutation, mutation-meta-routed toast — wired from primitives, not inherited from a framework.
 
 ## Packages
 

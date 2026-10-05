@@ -8,7 +8,10 @@
     "declarationMap": false,
     "sourceMap": false,
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@quilla-fe-kit/api-client-react-query": ["./src/index.ts"]
+    }
   },
   "include": ["src/**/*", "tests/**/*"],
   "exclude": ["dist"],
