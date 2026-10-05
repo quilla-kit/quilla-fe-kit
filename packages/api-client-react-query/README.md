@@ -145,6 +145,13 @@ export const queryClient = createQueryClient({
     maxAttempts?: number,        // default 2 (other errors)
     networkMaxAttempts?: number, // default 1 (NetworkError only)
   },
+
+  // Optional app-wide cache/refetch policy — see "Query defaults" below
+  queryDefaults?: {
+    staleTime?, gcTime?,
+    refetchOnWindowFocus?, refetchOnReconnect?, refetchOnMount?,
+    networkMode?,
+  },
 });
 ```
 
@@ -208,6 +215,77 @@ it('invalidates on success', async () => {
 | Other (incl. `InternalServerError`, unknown thrown values)   | up to `maxAttempts` (default 2)        |
 
 Mutations never retry. (React Query default — preserved here.)
+
+### Query defaults
+
+Without `queryDefaults`, every query keeps TanStack's defaults — notably
+`staleTime: 0`, so cached data is refetched on every remount, window refocus
+and `enabled: false → true` change. Set the app-wide policy once:
+
+```ts
+export const queryClient = createQueryClient({
+  queryDefaults: { staleTime: 30_000, refetchOnWindowFocus: false },
+});
+```
+
+`queryDefaults` accepts cache/refetch options only (`staleTime`, `gcTime`,
+`refetchOnWindowFocus`, `refetchOnReconnect`, `refetchOnMount`,
+`networkMode`). It is merged with the kit's retry policy, which is configured
+through `retry` and is never replaced. Options you leave out keep TanStack's
+values.
+
+**Precedence** — later wins:
+
+1. `queryDefaults` (global)
+2. `queryClient.setQueryDefaults(keyPrefix, options)` (per key family)
+3. Options passed to the hook
+
+Per key family is the natural fit for data that never changes — every query
+under the prefix inherits it, including `useInfiniteQueryBase` queries on the
+same base key:
+
+```ts
+const snapshotKeys = createQueryKeys('snapshots');
+queryClient.setQueryDefaults(snapshotKeys.all(), { staleTime: Infinity });
+```
+
+Per hook, `staleTime` may be a function of the query. `query.state.data` is
+the `QueryBaseResult<TModel>` (after transformer and mapper) — for
+`useInfiniteQueryBase`, an `InfiniteData<QueryBaseResult<TModel>>`:
+
+```ts
+useQueryBase<Snapshot>(snapshotKeys.detail(id), `/snapshots/${id}`, {
+  // Cache a successful read forever; keep an "unavailable" result refetchable.
+  staleTime: (query) => (query.state.data?.data.available ? Infinity : 0),
+});
+```
+
+**`Infinity` vs `'static'`.** A query with `staleTime: Infinity` still honours
+invalidation — the mutation `invalidate` option refetches it when active, or
+on its next mount. A `'static'` query (where your TanStack version supports
+it) is never stale: invalidation does not refetch it, nor do mount, focus or
+reconnect, so the `invalidate` option has no effect on it. Use `'static'`
+per hook or per key family for truly immutable data — never as
+`queryDefaults.staleTime`.
+
+#### Changing defaults after `createQueryClient`
+
+Prefer `queryDefaults` whenever the values are known at startup. If you must
+change them at runtime, note that TanStack's `setDefaultOptions` **replaces**
+the whole defaults object — a bare call silently drops the kit's retry policy
+and `mutations.retry: false`. Always merge:
+
+```ts
+const defaults = queryClient.getDefaultOptions();
+queryClient.setDefaultOptions({
+  ...defaults,
+  queries: { ...defaults.queries, staleTime: 30_000 },
+});
+```
+
+`resetQueryClient()` discards the client, so runtime changes must be
+re-applied after the next `createQueryClient` (tests, HMR). `queryDefaults`
+is re-applied automatically because it travels with the config.
 
 ### Wiring meta-driven UX
 
@@ -997,7 +1075,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
 - `QueryBasePageParam`, `QueryBasePageParamFn<...>`, `UseInfiniteQueryBaseOptions<...>`
 - `QueryInvalidator`
-- `CreateQueryClientConfig`, plus the four event-handler aliases
+- `CreateQueryClientConfig`, `QueryDefaults`, plus the four event-handler aliases
 - `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
 - `QueryKeyFactory`, `INFINITE_KEY_SEGMENT`
 - Per-hook option types (`UsePostMutationOptions`, etc.)

@@ -2,12 +2,14 @@ import {
   ConflictError,
   ForbiddenError,
   NetworkError,
+  NotFoundError,
   QuerySerializationError,
   UnauthorizedError,
   ValidationError,
 } from '@quilla-fe-kit/errors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type QueryDefaults,
   createQueryClient,
   getQueryClient,
   getQueryInvalidator,
@@ -133,5 +135,48 @@ describe('createQueryClient retry policy', () => {
   it('mutations never retry', () => {
     const queryClient = createQueryClient();
     expect(queryClient.getDefaultOptions().mutations?.retry).toBe(false);
+  });
+});
+
+describe('createQueryClient queryDefaults', () => {
+  const notFound = new NotFoundError({ message: 'x', httpStatus: 404, requestUrl: '/x' });
+
+  it('leaves TanStack defaults untouched when omitted', () => {
+    const queries = createQueryClient().getDefaultOptions().queries;
+    expect(queries).not.toHaveProperty('staleTime');
+    expect(queries).not.toHaveProperty('gcTime');
+    expect(queries).not.toHaveProperty('refetchOnWindowFocus');
+  });
+
+  it('applies every provided default', () => {
+    const queryDefaults: QueryDefaults = {
+      staleTime: 30_000,
+      gcTime: 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: 'always',
+      networkMode: 'always',
+    };
+    const queries = createQueryClient({ queryDefaults }).getDefaultOptions().queries;
+    expect(queries).toMatchObject(queryDefaults);
+  });
+
+  it('keeps the kit retry policy alongside the defaults', () => {
+    const queryClient = createQueryClient({
+      queryDefaults: { staleTime: Number.POSITIVE_INFINITY },
+    });
+    const { queries, mutations } = queryClient.getDefaultOptions();
+    const retry = queries?.retry as (count: number, e: unknown) => boolean;
+    expect(retry(0, notFound)).toBe(false);
+    expect(mutations?.retry).toBe(false);
+  });
+
+  it('does not let a smuggled retry override the kit policy', () => {
+    const queryClient = createQueryClient({
+      queryDefaults: { retry: 5 } as unknown as QueryDefaults,
+    });
+    const retry = queryClient.getDefaultOptions().queries?.retry;
+    expect(typeof retry).toBe('function');
+    expect((retry as (count: number, e: unknown) => boolean)(0, notFound)).toBe(false);
   });
 });

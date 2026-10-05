@@ -304,3 +304,51 @@ describe('useQueryBase — cancellation under the real retry policy', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('useQueryBase — createQueryClient queryDefaults', () => {
+  afterEach(() => {
+    resetQueryClient();
+  });
+
+  const setup = (hookStaleTime?: number) => {
+    const { client, calls } = createFakeHttpClient(async () => ({
+      status: 200,
+      headers: {},
+      data: { ok: true },
+    }));
+    const hooks = createHooks(client);
+
+    resetQueryClient();
+    const queryClient = createQueryClient({
+      queryDefaults: { staleTime: Number.POSITIVE_INFINITY },
+    });
+    const options = hookStaleTime === undefined ? {} : { staleTime: hookStaleTime };
+    const useHook = () => hooks.useQueryBase<{ ok: boolean }>(['defaults'], '/defaults', options);
+
+    return { calls, queryClient, useHook };
+  };
+
+  it('serves a remount from cache when the default staleTime is Infinity', async () => {
+    const { calls, queryClient, useHook } = setup();
+
+    const first = renderHookWithProviders(useHook, { queryClient });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    first.unmount();
+
+    const second = renderHookWithProviders(useHook, { queryClient });
+    expect(second.result.current.isSuccess).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toHaveLength(1);
+  });
+
+  it('lets a per-hook staleTime override the default', async () => {
+    const { calls, queryClient, useHook } = setup(0);
+
+    const first = renderHookWithProviders(useHook, { queryClient });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    first.unmount();
+
+    renderHookWithProviders(useHook, { queryClient });
+    await waitFor(() => expect(calls).toHaveLength(2));
+  });
+});

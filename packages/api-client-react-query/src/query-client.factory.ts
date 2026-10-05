@@ -10,6 +10,7 @@ import {
   ValidationError,
 } from '@quilla-fe-kit/errors';
 import {
+  type DefaultOptions,
   type Mutation,
   MutationCache,
   type Query,
@@ -40,6 +41,16 @@ export type QuerySuccessHandler = (data: unknown, query: AnyQuery) => void;
 export type MutationEventHandler = (error: Error, mutation: AnyMutation) => void;
 export type MutationSuccessHandler = (data: unknown, mutation: AnyMutation) => void;
 
+export type QueryDefaults = Pick<
+  NonNullable<DefaultOptions['queries']>,
+  | 'staleTime'
+  | 'gcTime'
+  | 'refetchOnWindowFocus'
+  | 'refetchOnReconnect'
+  | 'refetchOnMount'
+  | 'networkMode'
+>;
+
 export type CreateQueryClientConfig = {
   readonly onQueryError?: QueryEventHandler;
   readonly onQuerySuccess?: QuerySuccessHandler;
@@ -49,6 +60,7 @@ export type CreateQueryClientConfig = {
     readonly maxAttempts?: number;
     readonly networkMaxAttempts?: number;
   };
+  readonly queryDefaults?: QueryDefaults;
 };
 
 type Instance = {
@@ -108,6 +120,7 @@ export const createQueryClient = (config: CreateQueryClientConfig = {}): QueryCl
     mutationCache,
     defaultOptions: {
       queries: {
+        ...config.queryDefaults,
         retry: (failureCount, error) => {
           if (isNonRetryable(error)) return false;
           if (error instanceof NetworkError) return failureCount < networkMaxAttempts;
