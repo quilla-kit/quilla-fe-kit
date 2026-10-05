@@ -22,7 +22,7 @@ React Query adapter for [`@quilla-fe-kit/api-client`](../api-client):
   explicit OCC `versionKey` resolution and built-in cache invalidation.
 - **`createQueryKeys(domain)`** — standardized query key factory for
   prefix-based cache invalidation.
-- **Query meta module augmentation** — declarative `meta: { showSuccess }`
+- **Query meta module augmentation** — typed, app-extensible `meta: { showSuccess }`
   routed via your callbacks. The package never imports a toast library.
 
 Runtime deps: `@quilla-fe-kit/api-client`, `@quilla-fe-kit/errors`.
@@ -290,7 +290,7 @@ is re-applied automatically because it travels with the config.
 ### Wiring meta-driven UX
 
 The package augments React Query's `Register` interface so query / mutation
-`meta` is typed:
+`meta` is typed with a default vocabulary:
 
 ```ts
 meta: {
@@ -302,7 +302,8 @@ meta: {
 }
 ```
 
-Consumers wire UX in their `createQueryClient` callbacks:
+The kit never reads `meta`; your `createQueryClient` callbacks give each
+field its meaning:
 
 ```ts
 export const queryClient = createQueryClient({
@@ -315,8 +316,56 @@ export const queryClient = createQueryClient({
 });
 ```
 
-This is deliberate. The toolkit doesn't know whether you use Sonner,
-Mantine, your own `<Snackbar>`, or `console.warn` for failures. You decide.
+### Adding your own meta fields
+
+Add app-specific fields by merging them into `MutationMetaExtensions` (or
+`QueryMetaExtensions` for queries). They are typed everywhere `meta` is —
+at the call site and in your global callbacks — alongside the default
+vocabulary:
+
+```ts
+// src/lib/query-meta.ts
+import '@quilla-fe-kit/api-client-react-query';
+
+declare module '@quilla-fe-kit/api-client-react-query' {
+  interface MutationMetaExtensions {
+    successDetail?: string; // second line for a success notification
+    trackEvent?: string;    // analytics event to record on success
+  }
+}
+```
+
+```ts
+const update = usePutMutationBase<User, UpdateUserBody>('/users', {
+  meta: { showSuccess: true, successDetail: 'Changes are visible to your team.', trackEvent: 'user.updated' },
+});
+
+export const queryClient = createQueryClient({
+  onMutationSuccess: (_data, mutation) => {
+    const meta = mutation.meta;
+    if (meta?.showSuccess) {
+      toast.success(meta.customSuccessMessage ?? 'Saved', { description: meta.successDetail });
+    }
+    if (meta?.trackEvent) analytics.track(meta.trackEvent);
+  },
+});
+```
+
+Query and mutation extensions are independent: a field you need on both
+sides is declared in both interfaces.
+
+- The file holding the `declare module` block must be a module (it has an
+  `import` or `export`) and be included by your `tsconfig`. Otherwise the
+  extension can be silently ignored.
+- Extend through these interfaces; don't redeclare `Register.queryMeta` /
+  `Register.mutationMeta` yourself — it won't compile.
+- Don't redeclare a default-vocabulary key with a different type — `meta`
+  stops compiling. Add a new key instead.
+- Unknown keys in a `meta` literal are still compile errors, so typos are
+  caught.
+- To type your own helpers that receive meta, use `QueryMeta` /
+  `MutationMeta` from `@tanstack/react-query`. They resolve to the registered
+  types, extensions included.
 
 ## `queryInvalidator` and `getQueryInvalidator`
 
@@ -1080,6 +1129,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 - `QueryKeyFactory`, `INFINITE_KEY_SEGMENT`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
 - `HooksConfig`, `QueryTransformer`, `MutationTransformer`, `QueryTransformResult`
+- `SharedMeta`, `QuillaMutationMeta`, `QueryMetaExtensions`, `MutationMetaExtensions`
 
 ## Constraints and known limitations
 
@@ -1167,6 +1217,10 @@ Importing this package once anywhere in your app augments
 `meta: { showSuccess, showWarning, customSuccessMessage, customErrorMessage }`
 on queries (and `showError` on mutations).
 
-You don't need to do anything to opt in beyond the import. The types
-`SharedMeta` and `QuillaMutationMeta` are also exported if you want to
-reference the field shapes explicitly.
+You don't need to do anything to opt in beyond the import. To add your own
+fields, merge them into `QueryMetaExtensions` / `MutationMetaExtensions` —
+see [Adding your own meta fields](#adding-your-own-meta-fields).
+
+`SharedMeta` and `QuillaMutationMeta` are exported if you want to reference
+the default vocabulary explicitly. TanStack's `QueryMeta` / `MutationMeta`
+are the full registered types, including your extensions.
