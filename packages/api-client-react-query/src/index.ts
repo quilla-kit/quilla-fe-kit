@@ -12,6 +12,7 @@ export {
   queryInvalidator,
   resetQueryClient,
   type CreateQueryClientConfig,
+  type QueryDefaults,
   type QueryEventHandler,
   type QuerySuccessHandler,
   type MutationEventHandler,
