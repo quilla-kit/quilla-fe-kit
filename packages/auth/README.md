@@ -18,8 +18,8 @@ module load.
   `memoryTokenStorage`, `localStorageTokenStorage`, `cookieTokenStorage`.
 - **JWT utilities** — `decodeJwtPayload`, `decodeJwtHeader`,
   `isTokenExpired` (with clock-skew and `nbf` support), `getTokenExpiry`.
-  Hand-rolled against `globalThis.atob` — zero external deps, works in
-  browser and Node.
+  Hand-rolled base64url decoding (uses `Buffer` when available, otherwise
+  `atob` + `TextDecoder`) — zero external deps, works in browser and Node.
 - **Future** *(not yet shipped)* — login-flow state helpers, OAuth state
   generators, refresh-token rotation utilities. Each addition will keep
   the same shape: small, transport-agnostic, optional.
@@ -27,7 +27,7 @@ module load.
 ## What's *not* in scope
 
 - **Token verification, password hashing, session reading.** Those are BE
-  concerns — see `@quilla-kit/security` on the backend. The FE doesn't
+  concerns — see `@quilla-be-kit/security` on the backend. The FE doesn't
   hash passwords or verify tokens; it just carries them.
 - **Wire-shape types** like `AuthSession` (the `{ scopeId, userId }` JSON
   the BE returns). Those live in `@quilla-fe-kit/api-client`'s wire types
@@ -212,7 +212,7 @@ import { decodeJwtHeader } from '@quilla-fe-kit/auth';
 
 const header = decodeJwtHeader(token);
 // header: JwtHeader | null
-// { alg: string; typ?: string; kid?: string; ... }
+// { alg?: string; typ?: string; kid?: string }
 ```
 
 ### `isTokenExpired(token, options?)`
@@ -262,6 +262,17 @@ import type { JwtHeader, JwtPayload } from '@quilla-fe-kit/auth';
 `JwtPayload` covers the registered claims (`iss`, `sub`, `aud`, `exp`,
 `nbf`, `iat`, `jti`) — all optional. Extend it with an intersection for
 your own claim shape: `type TokenClaims = JwtPayload & { u: string; si: string; }`.
+
+## Types
+
+Other exported types:
+
+- `LocalStorageTokenStorageOptions` — `{ accessKey?: string; refreshKey?: string }`.
+- `CookieTokenStorageOptions` — `{ accessKey?; refreshKey?; secure?: boolean;
+  sameSite?: CookieSameSite; path?: string; domain?: string;
+  accessMaxAgeSeconds?: number; refreshMaxAgeSeconds?: number }`.
+- `CookieSameSite` — `'Strict' | 'Lax' | 'None'`.
+- `IsTokenExpiredOptions` — `{ clockSkewSeconds?: number }`.
 
 ## Default key namespace
 

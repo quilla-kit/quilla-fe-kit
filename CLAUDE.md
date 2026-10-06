@@ -15,8 +15,9 @@ Concretely:
 - Only create a subfolder when a **sub-topic emerges** — a cluster of files that
   share an internal concern the rest of the folder doesn't, typically 3+ files.
 - Nest sub-topics within their parent topic rather than hoisting them to the
-  root of `src/`. For example, multipart helpers are a sub-topic of the HTTP
-  client, so they live at `src/http/multipart/` — not at `src/multipart/`.
+  root of `src/`. For example, if multipart helpers grew into a sub-topic of
+  the HTTP client, they would live at `src/http/multipart/` — not at
+  `src/multipart/`.
 
 **Bad** (what we'd get if every concept got its own folder):
 
@@ -34,28 +35,25 @@ src/
 └── index.ts
 ```
 
-**Good**:
+**Good** (`packages/api-client/src/` today; token storage and errors are
+their own packages):
 
 ```
 src/
 ├── http/
-│   ├── http-client.interface.ts
-│   ├── fetch.client.ts
 │   ├── authenticated.client.ts
+│   ├── envelope.parser.ts
+│   ├── fetch.client.ts
+│   ├── file.downloader.ts
 │   ├── http-client.factory.ts
-│   ├── http-error.parser.ts
-│   ├── query-string.serializer.ts
+│   ├── http-client.interface.ts
+│   ├── http-error-parser.interface.ts
+│   ├── http-types.type.ts
+│   ├── query-string-serializer.interface.ts
+│   ├── repeat-params.serializer.ts
 │   ├── single-flight-token.refresher.ts
 │   └── index.ts
-├── storage/
-│   ├── token-storage.interface.ts
-│   ├── memory.storage.ts
-│   ├── local.storage.ts
-│   ├── cookie.storage.ts
-│   └── index.ts
-├── errors/             (a real sub-topic — 8 error classes + base)
-│   └── ...
-├── wire/               (a real sub-topic — 5 wire-contract types)
+├── wire/               (a real sub-topic — 4 wire-contract type files)
 │   └── ...
 └── index.ts
 ```
@@ -66,7 +64,8 @@ Files follow the shape **`{subject}.{type}.ts`** where:
 
 - **`{type}`** is the single-word role suffix — always simple, never compound.
   Current vocabulary: `client`, `factory`, `parser`, `serializer`, `refresher`,
-  `storage`, `provider`, `guard`, `hook`, `error`, `interface`, `type`.
+  `downloader`, `storage`, `provider`, `guard`, `hook`, `helper`, `error`,
+  `interface`, `type`.
 - Use **`.interface.ts`** when the file's main export is a TypeScript
   `interface` (contract to be implemented by a class) and no more specific
   role fits (e.g. prefer `.client.ts` or `.storage.ts` if accurate).
@@ -84,8 +83,8 @@ Files follow the shape **`{subject}.{type}.ts`** where:
 | `fetch.client.ts` | `fetch` | `client` |
 | `authenticated.client.ts` | `authenticated` | `client` |
 | `http-client.factory.ts` | `http-client` | `factory` |
-| `http-error.parser.ts` | `http-error` | `parser` |
-| `query-string.serializer.ts` | `query-string` | `serializer` |
+| `envelope.parser.ts` | `envelope` | `parser` |
+| `repeat-params.serializer.ts` | `repeat-params` | `serializer` |
 | `single-flight-token.refresher.ts` | `single-flight-token` | `refresher` |
 | `token-storage.interface.ts` | `token-storage` | `interface` |
 | `memory.storage.ts` | `memory` | `storage` |
@@ -94,7 +93,7 @@ Files follow the shape **`{subject}.{type}.ts`** where:
 | `conflict.error.ts` | `conflict` | `error` |
 | `validation.error.ts` | `validation` | `error` |
 | `error-envelope.type.ts` | `error-envelope` | `type` |
-| `pagination-request.type.ts` | `pagination-request` | `type` |
+| `pagination.type.ts` | `pagination` | `type` |
 | `auth-session.type.ts` | `auth-session` | `type` |
 | `use-query-base.hook.ts` | `use-query-base` | `hook` |
 | `use-post-mutation.hook.ts` | `use-post-mutation` | `hook` |
@@ -130,8 +129,9 @@ packages/api-client/
 Each package that has tests needs a `tsconfig.test.json` that extends the
 package's `tsconfig.json` with `composite: false`, `noEmit: true`, and
 `include: ["src/**/*", "tests/**/*"]`. Wire the script `"typecheck": "tsc -p
-tsconfig.test.json"`. Turbo's `typecheck` task runs it; CI runs `pnpm typecheck`
-between `pnpm build` and `pnpm test`.
+tsconfig.test.json"`. Turbo's `typecheck` task runs it. CI currently runs only
+the release workflow (`.github/workflows/release.yml`), so run `pnpm build`,
+`pnpm typecheck` and `pnpm test` locally before opening a PR.
 
 Shared fixtures and helpers go in `tests/helpers/` or `tests/fixtures/`.
 
@@ -144,12 +144,12 @@ Shared fixtures and helpers go in `tests/helpers/` or `tests/fixtures/`.
 
 Examples in this repo:
 
-- `interface HttpClient`, `interface TokenStorage`, `interface ErrorParser`,
+- `interface HttpClient`, `interface TokenStorage`, `interface HttpErrorParser`,
   `interface QueryStringSerializer` — all have method signatures that classes
   (or class-shaped factories) implement.
 - `type ErrorEnvelope`, `type PaginationRequest`, `type PaginationResponse<T>`,
-  `type AuthSession`, `type OCCToken`, `type HttpClientConfig`,
-  `type FetchOptions` — pure data.
+  `type AuthSession`, `type OCCToken`, `type CreateHttpClientConfig`,
+  `type HttpRequest` — pure data.
 
 Module-augmentation declarations (e.g. `@tanstack/react-query`'s `Register`
 interface) are a legitimate use of `interface` even when no class implements
@@ -159,7 +159,7 @@ them — declaration merging is the explicit intent.
 
 TypeScript is structurally typed; `I`-prefix is Hungarian notation that the
 type system already encodes. No `IHttpClient` / `ITokenStorage` /
-`IErrorParser`. Just `HttpClient`, `TokenStorage`, `ErrorParser`.
+`IHttpErrorParser`. Just `HttpClient`, `TokenStorage`, `HttpErrorParser`.
 
 Per the [TypeScript team's coding guidelines](https://github.com/microsoft/TypeScript/wiki/Coding-guidelines).
 
@@ -167,7 +167,7 @@ Per the [TypeScript team's coding guidelines](https://github.com/microsoft/TypeS
 
 Use `scopeId` (not `tenantId`). The toolkit is naming-agnostic about what the
 scope represents — consumers choose whether it's a tenant, workspace,
-organization, project, etc. This matches the BE convention in `@quilla-kit`.
+organization, project, etc. This matches the BE convention in `@quilla-be-kit`.
 
 Wire-type field: `AuthSession.scopeId`.
 
@@ -184,18 +184,18 @@ import { FetchHttpClient } from './fetch.client.js';   // resolves to ./fetch.cl
 
 This is the official TypeScript + Node ESM convention. Don't fight it.
 
-## Zero `@quilla-kit/*` runtime deps
+## Zero `@quilla-be-kit/*` runtime deps
 
-The FE has **zero import dependency** on any `@quilla-kit/*` package. Wire
+The FE has **zero import dependency** on any `@quilla-be-kit/*` package. Wire
 contracts live inside `@quilla-fe-kit/api-client` at
 `packages/api-client/src/wire/` (`ErrorEnvelope`, `PaginationRequest`,
 `PaginationResponse`, `AuthSession`, `OCC_HEADER`, `OCCToken`,
 `formatOCCHeaderValue`, `parseETagHeaderValue`) and are re-exported from
 the package barrel for consumer ergonomics. Error classes live in
-`@quilla-fe-kit/errors` matching the shape of `@quilla-kit/errors`.
+`@quilla-fe-kit/errors` matching the shape of `@quilla-be-kit/errors`.
 
 Drift between FE and BE is prevented by **docs**, not code dependency: the
-BE `@quilla-kit/http` README is the source of truth for the wire format.
+BE `@quilla-be-kit/http` README is the source of truth for the wire format.
 
 Do not propose a shared types package between the two halves. That was
 considered and rejected — the cost of separate governance is lower than the
@@ -206,7 +206,8 @@ cost of a coupled lifecycle.
 - **`@quilla-fe-kit/errors`** — zero runtime dependencies. Pure JS classes,
   no platform globals, universal runtime.
 - **`@quilla-fe-kit/auth`** — zero runtime dependencies. Auth primitives
-  (today: `TokenStorage` interface + 3 adapters). Adapters that touch
+  (today: `TokenStorage` interface + 3 adapters, and JWT decoding
+  utilities). Adapters that touch
   browser-only APIs (`localStorageTokenStorage`, `cookieTokenStorage`)
   guard against missing `localStorage` / `document` and throw a clear
   error at call time.
@@ -220,6 +221,10 @@ cost of a coupled lifecycle.
   `@quilla-fe-kit/api-client` + `@quilla-fe-kit/errors` (both workspace).
   `@tanstack/react-query` and `react` are peer dependencies. No
   additional runtime deps.
+- **`@quilla-fe-kit/auth-react`** — depends on `@quilla-fe-kit/auth` +
+  `@quilla-fe-kit/api-client` (both workspace; `api-client` for the
+  `AuthSession` wire shape). `react` is a peer dependency. No additional
+  runtime deps.
 
 Future framework adapters (`api-client-swr`, `api-client-vue-query`,
 `api-client-solid-query`) follow the same rule: `@quilla-fe-kit/api-client`
@@ -237,13 +242,13 @@ this pick-and-mix.
 
 **Naming note:** the `auth` package is named for its *future scope* (auth
 primitives) rather than just its current contents (token storage). The
-name reflects what the package will grow into; for now it's specifically
-token-storage adapters. `AuthSession` (the BE wire shape `{ scopeId, userId }`)
+name reflects what the package will grow into; today it holds token-storage
+adapters and JWT decoding utilities. `AuthSession` (the BE wire shape `{ scopeId, userId }`)
 deliberately lives in `api-client/src/wire/` next to other wire types —
 it describes a JSON contract with the BE, not a local auth primitive.
 
 **Why `wire` is *not* its own package:** wire types only have meaning
-when speaking to a `@quilla-kit` BE. There's no honest standalone "I want
+when speaking to a `@quilla-be-kit` BE. There's no honest standalone "I want
 only the wire types" scenario. They live inside
 `packages/api-client/src/wire/` because that's where they're used, and
 `api-client` re-exports them so consumers who need them get them without
@@ -262,8 +267,7 @@ an extra install.
   `process.env.X` at the top of any file.
 - Storage adapters that touch browser-only APIs (`localStorageTokenStorage`,
   `cookieTokenStorage`) must guard against missing `window` / `document`
-  and either no-op or throw a clear error — caller's choice surfaced via
-  config.
+  and throw a clear error at call time.
 - `tsconfig.base.json` includes `"DOM"` in `lib` for `fetch` / `URL` /
   `crypto` types. It does **not** auto-inject `@types/node` (`types: []`).
   Tests opt in via `tsconfig.test.json` (`types: ["node"]`).
@@ -290,5 +294,5 @@ Patches are patch bumps.
 ## Commit messages
 
 Conventional-commits-style. Scope with the affected package
-(`feat(client):`, `feat(client-react-query):`, `chore:`, `docs:`). Body
+(`feat(api-client):`, `feat(api-client-react-query):`, `chore:`, `docs:`). Body
 explains the *why* and the load-bearing design decisions, not a file list.

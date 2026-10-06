@@ -1,6 +1,6 @@
 # @quilla-fe-kit/api-client
 
-Framework-agnostic HTTP API client for consuming `@quilla-kit` backends:
+Framework-agnostic HTTP API client for consuming `@quilla-be-kit` backends:
 
 - **Layered transport** — `FetchHttpClient` (raw `fetch` wrapper) →
   `AuthenticatedHttpClient` (Bearer + 401-refresh-retry decorator) →
@@ -8,22 +8,24 @@ Framework-agnostic HTTP API client for consuming `@quilla-kit` backends:
 - **Single-flight token refresh** — concurrent 401s collapse onto one
   in-flight refresh promise. No stampedes.
 - **Pluggable error parser** — default `EnvelopeHttpErrorParser` matches
-  `@quilla-kit/http`'s wire envelope; consumers can override with any
+  `@quilla-be-kit/http`'s wire envelope; consumers can override with any
   `HttpErrorParser` for non-quilla backends.
 - **OCC via `If-Match` / `ETag`** — numeric aggregate `version`, RFC 7232
   headers, helpers for round-tripping. No body fields, no cache magic.
 - **Configurable query-string serializer** — defaults match
-  `@quilla-kit/persistence`'s parser (`__contains` suffix, `pageSize`
+  `@quilla-be-kit/persistence`'s parser (`__contains` suffix, `pageSize`
   pagination key).
 
 Browser + Node + edge safe. Reads platform globals via `globalThis`.
 
-Runtime deps: `@quilla-fe-kit/errors`, `@quilla-fe-kit/auth`.
+Runtime deps: `@quilla-fe-kit/errors`, `@quilla-fe-kit/auth`. This package
+re-exports everything from both, so their exports are also available from
+`@quilla-fe-kit/api-client`.
 
 ## Install
 
 ```sh
-pnpm add @quilla-fe-kit/api-client @quilla-fe-kit/errors @quilla-fe-kit/auth
+pnpm add @quilla-fe-kit/api-client
 ```
 
 Node 22+, ESM-only.
@@ -31,8 +33,12 @@ Node 22+, ESM-only.
 ## Quick start
 
 ```ts
-import { createHttpClient } from '@quilla-fe-kit/api-client';
-import { localStorageTokenStorage } from '@quilla-fe-kit/auth';
+import {
+  type PaginationResponse,
+  UnauthorizedError,
+  createHttpClient,
+  localStorageTokenStorage,
+} from '@quilla-fe-kit/api-client';
 
 const client = createHttpClient({
   baseUrl: 'https://api.example.com',
@@ -42,7 +48,13 @@ const client = createHttpClient({
       method: 'POST',
       headers: { Authorization: `Bearer ${refreshToken}` },
     });
-    if (!res.ok) throw new Error('refresh failed');
+    if (!res.ok) {
+      throw new UnauthorizedError({
+        message: 'refresh failed',
+        httpStatus: res.status,
+        requestUrl: res.url,
+      });
+    }
     return res.json(); // { access, refresh }
   },
 });
@@ -51,7 +63,7 @@ const client = createHttpClient({
 const me = await client.request<User>({ url: '/me' });
 
 // List with pagination + search
-const users = await client.request<{ data: User[]; pagination: Pagination }>({
+const users = await client.request<PaginationResponse<User>>({
   url: '/users',
   params: {
     search: { name: 'ada' },          // name__contains=ada
@@ -71,6 +83,27 @@ const csrf = await client.request<{ token: string }>({
 If `refreshEndpoint` is omitted, `createHttpClient` returns the bare
 `FetchHttpClient` (no auth decorator, no token storage). Useful for tests
 or fully-public APIs.
+
+### Config
+
+`createHttpClient(config: CreateHttpClientConfig)`:
+
+| Field             | Type                                                 | Default                        |
+| ----------------- | ---------------------------------------------------- | ------------------------------ |
+| `baseUrl`         | `string`                                             | required                       |
+| `storage`         | `TokenStorage`                                       | `memoryTokenStorage()`         |
+| `refreshEndpoint` | `RefreshEndpoint`                                    | none → plain `FetchHttpClient` |
+| `errorParser`     | `HttpErrorParser`                                    | `new EnvelopeHttpErrorParser()` |
+| `querySerializer` | `QueryStringSerializer \| Partial<QueryConventions>` | `new RepeatParamsSerializer()` |
+| `fetchImpl`       | `typeof fetch`                                       | `globalThis.fetch`             |
+
+`storage` is only used when `refreshEndpoint` is set; without
+`refreshEndpoint` no auth decorator is created and `storage` is ignored.
+
+```ts
+type RefreshEndpoint = (refreshToken: string) => Promise<TokenPair>;
+type TokenPair = { access: string; refresh: string }; // from @quilla-fe-kit/auth
+```
 
 ## How the layers compose
 
@@ -105,7 +138,7 @@ You can compose your own decorators by wrapping any inner `HttpClient`.
 
 ## OCC (optimistic concurrency control)
 
-The kit speaks the `@quilla-kit/ddd` aggregate-version model:
+The kit speaks the `@quilla-be-kit/ddd` aggregate-version model:
 
 - **Token shape:** numeric `version` (BE convention), wire header `If-Match`.
 - **Send:** the consumer formats the version with `formatOCCHeaderValue(version)`
@@ -152,9 +185,10 @@ The default parser dispatches by `error.name` first, then by status code:
 | transport failure (offline, abort, TypeError) | `NetworkError`         |
 | anything else                                 | `InternalServerError`  |
 
-Name-first dispatch is what makes `BusinessRuleError` round-trip — it has
-no unique HTTP status, but the BE serializes the class name into
-`envelope.error.name` and the FE picks it up. It's also how domain-specific
+The quilla BE has no built-in `BusinessRuleError`. If your backend throws an
+error named `BusinessRuleError`, name-first dispatch round-trips it: the class
+name arrives in `envelope.error.name` regardless of status and the FE picks it
+up. Name-first dispatch is also how domain-specific
 subtypes of a generic HTTP error survive the round trip: `@quilla-be-kit/persistence`'s
 `OptimisticLockError` (`extends ConflictError`) and `CrossScopeAccessError`
 (`extends NotFoundError`) each serialize their own class name, so the parser
@@ -182,8 +216,15 @@ const client = createHttpClient({
 
 ## Handling errors
 
-All errors thrown by the client extend `QuillaFeError` from
-`@quilla-fe-kit/errors`. Use `instanceof` to narrow to a specific class:
+With the default error parser, HTTP failures and transport failures are
+`QuillaFeError` subclasses from `@quilla-fe-kit/errors`. Two exceptions:
+
+- A failed token refresh clears token storage and rethrows whatever
+  `refreshEndpoint` threw (when no refresh token is stored, an
+  `UnauthorizedError` is thrown instead).
+- A custom `errorParser` may return any `Error`.
+
+Use `instanceof` to narrow to a specific class:
 
 ```ts
 import {
@@ -194,7 +235,7 @@ import {
   BusinessRuleError,
   ConflictError,
   OptimisticLockError,
-} from '@quilla-fe-kit/errors';
+} from '@quilla-fe-kit/api-client';
 
 try {
   const user = await client.request<User>({ url: '/users/42' });
@@ -205,15 +246,18 @@ try {
     // 404 (covers CrossScopeAccessError too — check that first if you
     // need to tell scope-boundary 404s apart from plain not-found)
   } else if (e instanceof UnauthorizedError) {
-    // 401 — tokens expired and refresh failed
+    // 401 with no refresh token stored, or whatever your refreshEndpoint
+    // throws on failure (an UnauthorizedError in the Quick start example)
   } else if (e instanceof ValidationError) {
-    // 422 — field-level validation; details in e.context
+    // matched by error name (the quilla BE sends it as 400); 422 is the
+    // status fallback for other backends; details in e.context
   } else if (e instanceof BusinessRuleError) {
     // domain rejection from the BE (any status); details in e.context
   } else if (e instanceof OptimisticLockError) {
-    // 409 — lost a concurrent write race; e.context is { entity, id }
+    // matched by error name — lost a concurrent write race;
+    // e.context is { entity, id, key? }
   } else if (e instanceof ConflictError) {
-    // 409 / 412 — stale version (OCC) or other conflict
+    // any other 409 / 412
   } else {
     throw e; // re-throw unexpected errors
   }
@@ -244,14 +288,14 @@ error boundaries that re-throw across bundle boundaries), use
 brand rather than the prototype chain — then discriminate by `e.code`:
 
 ```ts
-import { QuillaFeError } from '@quilla-fe-kit/errors';
+import { QuillaFeError } from '@quilla-fe-kit/api-client';
 
 if (QuillaFeError.is(e) && e.code === 'NOT_FOUND') { /* ... */ }
 ```
 
 ## Query-string conventions
 
-The default `RepeatParamsSerializer` matches `@quilla-kit/persistence`'s
+The default `RepeatParamsSerializer` matches `@quilla-be-kit/persistence`'s
 `createQueryParametersSchema`:
 
 | Input                                 | Output                              |
@@ -322,7 +366,8 @@ the shape of a single feature. Flatten those params at the call site instead,
 where the vocabulary already lives.
 
 `Date` and other class instances are deliberately untouched — they still go
-through `String(value)`, which yields a locale string. Choosing ISO instead is
+through `String(value)`, which for a `Date` yields `Date.prototype.toString()`
+output (e.g. `Tue Oct 06 2026 10:00:00 GMT+0000 (…)`), not ISO. Choosing ISO instead is
 a wire convention, so `encodeValue` is the place to make it.
 
 Or pass an entire custom `QueryStringSerializer` instance for non-flat
@@ -383,11 +428,23 @@ await downloadFile(client, {
 });
 ```
 
+`DownloadFileOptions`:
+
+| Field       | Type              | Required |
+| ----------- | ----------------- | -------- |
+| `url`       | `string`          | yes      |
+| `filename`  | `string`          | yes      |
+| `params`    | `HttpQueryParams` | no       |
+| `headers`   | `HttpHeaders`     | no       |
+| `signal`    | `AbortSignal`     | no       |
+| `timeoutMs` | `number`          | no       |
+
 `downloadFile` GETs the resource as a `Blob` through the client, then hands it
 to `saveBlobAsFile(blob, filename)`, which creates an object URL, clicks a
 synthetic `<a download>`, and revokes the URL. Both are **browser-only** — they
 throw a clear error if `document` / `URL.createObjectURL` is unavailable (SSR,
-Node, edge). The binary fetch (`responseType`) itself stays environment-agnostic;
+Node, edge). `downloadFile` performs the request before checking for the DOM,
+so outside a browser it fetches the file and then throws. The binary fetch (`responseType`) itself stays environment-agnostic;
 only the save-to-disk step needs the DOM.
 
 ## Wire-contract types
@@ -409,9 +466,9 @@ import {
 } from '@quilla-fe-kit/api-client';
 ```
 
-These exist solely to keep the FE in sync with `@quilla-kit/http`'s wire
+These exist solely to keep the FE in sync with `@quilla-be-kit/http`'s wire
 format. Drift is prevented by docs (the BE README is the source of truth),
-not by a code dependency — the FE has zero `@quilla-kit/*` imports.
+not by a code dependency — the FE has zero `@quilla-be-kit/*` imports.
 
 ## Multiple clients per app
 
@@ -454,7 +511,7 @@ are lowercase.
 - `createHttpClient(config: CreateHttpClientConfig): HttpClient`
 
 ### Browser-only helpers
-- `downloadFile(client, options: DownloadFileOptions): Promise<void>` — authenticated binary GET → "Save as"
+- `downloadFile(client, options: DownloadFileOptions): Promise<void>` — authenticated binary GET → "Save as" (fetches before the DOM check; throws after the request outside a browser)
 - `saveBlobAsFile(blob: Blob, filename: string): void` — trigger a browser download from a `Blob`
 
 ### Interfaces
@@ -470,12 +527,16 @@ are lowercase.
 - `RefreshEndpoint`, `TokenRefresher`
 
 ### Classes (escape hatches)
-- `FetchHttpClient` — bare transport
-- `AuthenticatedHttpClient` — auth decorator
-- `SingleFlightTokenRefresher` — concurrent-safe refresh
-- `EnvelopeHttpErrorParser` — default error parser
-- `RepeatParamsSerializer` — default query serializer; override `encodeValue`
-  to change how a value is encoded
+- `FetchHttpClient` — bare transport;
+  `new FetchHttpClient({ baseUrl, querySerializer, errorParser, fetchImpl? })`
+- `AuthenticatedHttpClient` — auth decorator;
+  `new AuthenticatedHttpClient({ inner, storage, tokenRefresher })`
+- `SingleFlightTokenRefresher` — concurrent-safe refresh;
+  `new SingleFlightTokenRefresher({ storage, refreshEndpoint })`
+- `EnvelopeHttpErrorParser` — default error parser; `new EnvelopeHttpErrorParser()`
+- `RepeatParamsSerializer` — default query serializer;
+  `new RepeatParamsSerializer(conventions?: Partial<QueryConventions>)`; override
+  `encodeValue` to change how a value is encoded
 - `DEFAULT_QUERY_CONVENTIONS` — the defaults `RepeatParamsSerializer` starts from
 
 You typically only need `createHttpClient`. The classes are exposed for
