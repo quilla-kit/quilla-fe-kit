@@ -19,20 +19,28 @@ const defaultExtractVersion = (cached: unknown): OCCToken | null => {
   return candidate.version ?? null;
 };
 
+const formatKey = (key: QueryKey): string =>
+  `[${(key as readonly unknown[]).map((p) => JSON.stringify(p)).join(', ')}]`;
+
 export const buildOCCHeaders = <TVars>(
   resolver: VersionResolver<TVars> | undefined,
   vars: TVars,
 ): HttpHeaders | undefined => {
   if (!resolver) return undefined;
+  const queryClient = getQueryClient();
   const key = resolver.versionKey(vars);
-  const cached = getQueryClient().getQueryData(key);
+  let cached = queryClient.getQueryData(key);
+  // useQueryBase caches at [...baseKey, params], with params = {} for a read without query
+  // options, so a versionKey returning the bare baseKey resolves through this single key.
+  const fallbackKey = cached === undefined && !resolver.extractVersion ? [...key, {}] : undefined;
+  if (fallbackKey) cached = queryClient.getQueryData(fallbackKey);
   const extract = resolver.extractVersion ?? defaultExtractVersion;
   const version = extract(cached);
   if (version === null || version === undefined) {
+    const alsoTried = fallbackKey ? ` (also tried ${formatKey(fallbackKey)})` : '';
+    const hint = 'Ensure the query is loaded before mutating, or provide extractVersion.';
     throw new Error(
-      `[OCC] Could not resolve version from cache for key [${(key as unknown[])
-        .map((p) => JSON.stringify(p))
-        .join(', ')}]. Ensure the query is loaded before mutating, or provide extractVersion.`,
+      `[OCC] Could not resolve version from cache for key ${formatKey(key)}${alsoTried}. ${hint}`,
     );
   }
   return { [OCC_HEADER]: formatOCCHeaderValue(version) };

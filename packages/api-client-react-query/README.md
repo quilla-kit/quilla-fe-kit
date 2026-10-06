@@ -204,7 +204,8 @@ it('invalidates on success', async () => {
   );
 
   // Seed data on the singleton — OCC reads from here
-  queryClient.setQueryData(userKeys.detail(1), { data: {}, version: 5 });
+  // A useQueryBase read without query options is cached at [...baseKey, {}]
+  queryClient.setQueryData([...userKeys.detail(1), {}], { data: {}, version: 5 });
 
   await act(() => result.current.mutateAsync({ id: 1, body: {} }));
   // invalidation also hits the singleton — consistent
@@ -1020,6 +1021,12 @@ const { data } = useQueryBase<RawUser>(
 );
 ```
 
+Every `useQueryBase` read is cached under `[...baseKey, params]`. `params` is
+`{}` when the read's query options add nothing, so a plain detail read
+`useQueryBase(userKeys.detail(id), …)` lives at `[...userKeys.detail(id), {}]`.
+Beyond that, the shape of `params` is unspecified — target these entries
+with a `baseKey` prefix rather than rebuilding `params`.
+
 ## `invalidate` option on mutation hooks
 
 All four mutation hooks accept an `invalidate` option that calls
@@ -1071,10 +1078,9 @@ type InvalidateKeys<TVars, TData> =
 
 ## OCC: how `versionKey` works
 
-The locked design rejects prefix-matching cache lookups (the substrate's
-fragile pattern). Instead, mutations require an **explicit** `versionKey`
-builder that returns the React Query queryKey of a cache entry shaped as
-`QueryBaseResult<T>` (i.e., a result of `useQueryBase`):
+PUT, PATCH and DELETE hooks accept `occ: { versionKey }`. `versionKey`
+returns the key of one cache entry shaped as `QueryBaseResult<T>` (the
+result of `useQueryBase`); it is never prefix-matched:
 
 ```ts
 type QueryBaseResult<T> = {
@@ -1083,12 +1089,41 @@ type QueryBaseResult<T> = {
 };
 ```
 
-The OCC helper reads `cache.version` and stamps `If-Match: "<version>"`
-on the mutation request. If the cache entry is missing or `version` is
-null, the mutation throws a clear error before the request fires —
-explicit-over-magic.
+The OCC helper reads `version` from that entry and stamps
+`If-Match: "<version>"` on the mutation request.
 
-For non-`useQueryBase` cache shapes, override the extractor:
+**Lookup.** The key is tried exactly first. If nothing is cached there (and
+you haven't supplied `extractVersion`), the kit tries `[...key, {}]` once —
+the key of a `useQueryBase` read without query options (see
+[Wiring with `useQueryBase`](#wiring-with-usequerybase)). So for a plain
+detail read both forms work:
+
+```ts
+useQueryBase<User>(userKeys.detail(id), `/users/${id}`);
+
+occ: { versionKey: ({ id }) => userKeys.detail(id) }            // resolves via [...key, {}]
+occ: { versionKey: ({ id }) => [...userKeys.detail(id), {}] }   // resolves exactly
+```
+
+If the read passes query options, `versionKey` must return that read's full
+key. In practice, guard writes with a detail read that has no query options.
+
+**No version, no request.** If the entry is missing, still loading, or its
+`version` is `null`, the mutation rejects with
+`[OCC] Could not resolve version from cache for key …` (listing every key it
+tried) before the request is sent.
+
+**Refreshing the version.** The cached version changes only when the entry
+is refetched — a mutation response's `ETag` is not written to the cache.
+Pass `invalidate` with the entry's key (or a prefix of it): an active read is
+refetched before `mutateAsync` resolves. Inactive entries, and reads with
+`staleTime: 'static'`, keep the old version until they are next fetched. A
+stale version is rejected by the server and surfaces as `ConflictError` (or
+its subclass `OptimisticLockError`).
+
+For cache entries that are not `QueryBaseResult`-shaped, supply
+`extractVersion`. With a custom extractor only the exact key is read — there
+is no `[...key, {}]` fallback:
 
 ```ts
 useDeleteMutationBase<void, { id: number }>('/users', {
@@ -1100,8 +1135,9 @@ useDeleteMutationBase<void, { id: number }>('/users', {
 ```
 
 The `buildOCCHeaders(resolver, vars)` helper is also exported if you need
-to compose your own mutation hooks. It reads the version from the singleton
-cache internally — no `QueryClient` argument needed.
+to compose your own mutation hooks. It applies the same lookup and reads the
+version from the singleton cache internally — no `QueryClient` argument
+needed.
 
 ## `useDebouncedValue`
 
