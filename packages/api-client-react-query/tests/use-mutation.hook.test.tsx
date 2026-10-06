@@ -1,8 +1,9 @@
-import { OCC_HEADER } from '@quilla-fe-kit/api-client';
+import { type HttpRequest, OCC_HEADER } from '@quilla-fe-kit/api-client';
 import { act, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHooks } from '../src/hooks.factory.js';
 import { createQueryClient, resetQueryClient } from '../src/query-client.factory.js';
+import { createQueryKeys } from '../src/query-keys.factory.js';
 import { createFakeHttpClient, renderHookWithProviders } from './helpers/render.helper.js';
 
 beforeEach(() => {
@@ -443,5 +444,108 @@ describe('mutations — invalidate option uses getQueryInvalidator()', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(spy).toHaveBeenCalledWith({ queryKey: ['users', 'list'] });
+  });
+});
+
+describe('OCC with a real useQueryBase read', () => {
+  const userKeys = createQueryKeys('users');
+
+  const setup = (options: { getNeverResolves?: boolean } = {}) => {
+    const { client, calls } = createFakeHttpClient(async (config) => {
+      if (config.method === undefined || config.method === 'GET') {
+        if (options.getNeverResolves) await new Promise(() => {});
+        return { status: 200, headers: { etag: '"11"' }, data: { id: 5, name: 'Ada' } };
+      }
+      return { status: 200, headers: {}, data: { ok: true } };
+    });
+    return { hooks: createHooks(client), calls, queryClient: createQueryClient() };
+  };
+
+  const writes = (calls: HttpRequest[]) =>
+    calls.filter((c) => c.method !== undefined && c.method !== 'GET');
+
+  it('PUT sends If-Match from a plain detail read using the base key', async () => {
+    const { hooks, calls, queryClient } = setup();
+    const { result } = renderHookWithProviders(
+      () => ({
+        read: hooks.useQueryBase<{ id: number }>(userKeys.detail(5), '/users/5'),
+        put: hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+          occ: { versionKey: ({ id }) => userKeys.detail(id) },
+        }),
+      }),
+      { queryClient },
+    );
+    await waitFor(() => expect(result.current.read.isSuccess).toBe(true));
+
+    await act(async () => {
+      await result.current.put.mutateAsync({ id: 5, body: { name: 'Grace' } });
+    });
+
+    expect(writes(calls)[0]?.headers?.[OCC_HEADER]).toBe('"11"');
+  });
+
+  it('DELETE sends If-Match from a plain detail read using the base key', async () => {
+    const { hooks, calls, queryClient } = setup();
+    const { result } = renderHookWithProviders(
+      () => ({
+        read: hooks.useQueryBase<{ id: number }>(userKeys.detail(5), '/users/5'),
+        remove: hooks.useDeleteMutationBase<{ ok: boolean }, { id: number }>('/users', {
+          occ: { versionKey: ({ id }) => userKeys.detail(id) },
+        }),
+      }),
+      { queryClient },
+    );
+    await waitFor(() => expect(result.current.read.isSuccess).toBe(true));
+
+    await act(async () => {
+      await result.current.remove.mutateAsync({ id: 5 });
+    });
+
+    expect(writes(calls)[0]?.method).toBe('DELETE');
+    expect(writes(calls)[0]?.headers?.[OCC_HEADER]).toBe('"11"');
+  });
+
+  it('never sends a write when the read used query options and versionKey is the base key', async () => {
+    const { hooks, calls, queryClient } = setup();
+    const { result } = renderHookWithProviders(
+      () => ({
+        read: hooks.useQueryBase<{ id: number }>(userKeys.detail(5), '/users/5', {
+          query: { filter: { status: 'active' } },
+        }),
+        put: hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+          occ: { versionKey: ({ id }) => userKeys.detail(id) },
+        }),
+      }),
+      { queryClient },
+    );
+    await waitFor(() => expect(result.current.read.isSuccess).toBe(true));
+
+    await act(async () => {
+      await expect(
+        result.current.put.mutateAsync({ id: 5, body: { name: 'Grace' } }),
+      ).rejects.toThrow(/OCC.*Could not resolve/);
+    });
+    expect(writes(calls)).toHaveLength(0);
+  });
+
+  it('never sends a write while the read is still pending', async () => {
+    const { hooks, calls, queryClient } = setup({ getNeverResolves: true });
+    const { result } = renderHookWithProviders(
+      () => ({
+        read: hooks.useQueryBase<{ id: number }>(userKeys.detail(5), '/users/5'),
+        put: hooks.usePutMutationBase<{ ok: boolean }, { name: string }>('/users', {
+          occ: { versionKey: ({ id }) => userKeys.detail(id) },
+        }),
+      }),
+      { queryClient },
+    );
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    await act(async () => {
+      await expect(
+        result.current.put.mutateAsync({ id: 5, body: { name: 'Grace' } }),
+      ).rejects.toThrow(/Could not resolve version.*also tried.*\{\}/);
+    });
+    expect(writes(calls)).toHaveLength(0);
   });
 });
