@@ -36,7 +36,7 @@ Node 22+, ESM-only.
 
 `auth-react` ships **no opinion** about your JWT claim shape. You provide
 a `fromClaims` mapper that turns decoded claims into a `Principal`. This
-mirrors the discipline `@quilla-kit/security` applies on the BE side: the
+mirrors the discipline `@quilla-be-kit/security` applies on the BE side: the
 package owns the interface, the consumer owns the encode/decode glue.
 
 ```ts
@@ -62,7 +62,7 @@ export const fromClaims: ClaimsMapper<TokenClaims> = (c) => {
 ```
 
 Why this lives in your app and not the toolkit: claim names are part of
-your BE's wire contract (see `@quilla-kit/security`'s `TokenClaims`). The
+your BE's wire contract (see `@quilla-be-kit/security`'s `TokenClaims`). The
 toolkit shouldn't ship a published type that pins those names — when the
 BE evolves them, you'd need a coordinated FE toolkit release. Five lines
 in your auth-setup module is the right boundary.
@@ -106,9 +106,10 @@ On mount it reads the access token from `storage`, decodes it, runs it
 through `fromClaims`, and seeds the context. If any step returns `null`,
 it clears storage and stays unauthenticated.
 
-**Expiry is checked by default.** The built-in decoder calls
-`isTokenExpired` before decoding claims, so a stored token that has
-expired is treated as absent — no stale session is hydrated. Pass a
+**Expiry is checked by default.** The built-in decoder rejects tokens
+whose `exp` is missing or in the past, or whose `nbf` is in the future
+(no clock-skew tolerance), so a stored token that has expired is treated
+as absent — no stale session is hydrated. Pass a
 `decodeToken` prop to override this behavior (see [Custom token
 decoder](#custom-token-decoder) below).
 
@@ -172,6 +173,10 @@ the API itself (likely via `@quilla-fe-kit/api-client-react-query`) and
 hands the returned tokens to `signIn`:
 
 ```tsx
+// usePostMutationBase comes from your app's api module:
+//   export const { usePostMutationBase } = createHooks(httpClient);
+import { usePostMutationBase } from './api';
+
 const LoginPage = () => {
   const { signIn } = useAuth();
   const navigate = useNavigate();
@@ -203,6 +208,10 @@ const { principal, isAuthenticated, isLoading, signIn, signOut } = useAuth();
 
 Throws if called outside an `AuthProvider`.
 
+`signIn(tokens)` throws `AuthProvider.signIn: access token failed to map
+into a Principal.` when decoding or `fromClaims` returns `null` (including
+an expired access token); storage is left untouched in that case.
+
 ## `<RequireAuth>` — route-level guard
 
 Router-agnostic. Pass whatever your router uses as the fallback node:
@@ -223,7 +232,7 @@ Router-agnostic. Pass whatever your router uses as the fallback node:
 | `fallback` | Rendered when unauthenticated. Required. |
 | `forbiddenFallback` | Rendered when authenticated but `scopes` check fails. Default: `null`. |
 | `loadingFallback` | Rendered while the provider is hydrating from storage. Default: `null`. |
-| `scopes` | Optional. User passes if they hold **any** of these scopes (`some` semantics — typical RBAC route check). |
+| `scopes` | Optional. User passes if they hold **any** of these scopes (`some` semantics — typical RBAC route check). Omitted or `[]` — no scope check. |
 
 ## `<ScopeGuard>` — render-level guard
 
@@ -242,7 +251,7 @@ item):
 
 | Prop | Description |
 | --- | --- |
-| `scopes` | List of required scopes. |
+| `scopes` | List of required scopes. `[]` always renders `fallback`. |
 | `mode` | `'every'` (default) — user must hold all. `'some'` — user must hold at least one. |
 | `fallback` | Optional alternative content. Default: `null`. |
 
@@ -255,6 +264,8 @@ and conditionals:
 const canEdit = useHasScope(['users:write']);
 const canSeeAdmin = useHasScope(['admin', 'auditor'], 'some');
 ```
+
+Returns `false` when unauthenticated or when `scopes` is empty.
 
 ## `Principal`
 
@@ -280,6 +291,9 @@ JWT into this type.
 - `<RequireAuth fallback scopes? forbiddenFallback? loadingFallback? children>`
 - `<ScopeGuard scopes mode? fallback? children>`
 
+### Context
+- `AuthContext` — the React context `AuthProvider` populates (`AuthContextValue | null`)
+
 ### Hooks
 - `useAuth() → AuthContextValue`
 - `useHasScope(scopes, mode?) → boolean`
@@ -300,7 +314,7 @@ directly.
   against `api-client`. This keeps the package decoupled from how a given
   app shapes its login (email/password, magic link, OAuth, SSO).
 - **Toolkit owns no JWT claim shape.** `fromClaims` is required. Mirrors
-  `@quilla-kit/security`'s "interface, not adapter" discipline — the BE
+  `@quilla-be-kit/security`'s "interface, not adapter" discipline — the BE
   side has the consumer provide `toClaims`/`fromClaims` inside their own
   `TokenService` adapter. FE applies the same boundary.
 - **Guards are router-agnostic.** Fallbacks are `ReactNode`, not paths.

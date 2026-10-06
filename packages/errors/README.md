@@ -16,10 +16,13 @@ request even reach the server?". This package ships those primitives once:
   JSON serialization, and a `Symbol.for`-branded `is()` check.
 - A `QuillaFeHttpError` subclass that adds first-class `httpStatus` and
   `requestUrl` for any error derived from an HTTP response.
-- Eight HTTP-derived classes covering the standard 4xx/5xx categories plus
-  `BusinessRuleError` for domain-rule failures the BE returns by name.
+- Seven standard HTTP classes covering the 4xx/5xx categories, two
+  domain-specific leaves (`CrossScopeAccessError`, `OptimisticLockError`),
+  plus `BusinessRuleError` for domain-rule failures the BE returns by name.
 - A `NetworkError` for transport-level failures (offline, timeout, abort) —
   the request never reached HTTP, so it doesn't carry a status.
+- A `QuerySerializationError`, raised by `@quilla-fe-kit/api-client`'s query
+  serializer when a param can't be serialized (e.g. a nested object).
 
 Reusable independently of `@quilla-fe-kit/api-client` — pull this if you
 want a structured error model with any HTTP layer (axios, ky, your own).
@@ -47,15 +50,34 @@ QuillaFeError                          (abstract — base for all kit errors)
 │   ├── ValidationError                code: 'VALIDATION'
 │   ├── BusinessRuleError              code: 'BUSINESS_RULE' (status varies)
 │   └── InternalServerError            code: 'INTERNAL_SERVER'
-└── NetworkError                       code: 'NETWORK'        (transport failures)
+├── NetworkError                       code: 'NETWORK'        (transport failures)
+└── QuerySerializationError            code: 'QUERY_SERIALIZATION'
 ```
 
-`code` is a literal type per class — `error.code === 'CONFLICT'` narrows the
-class via discriminated union without `instanceof`. `ConflictError` and
-`NotFoundError` are the exception: they declare `code` as plain `string`
-(not a narrower literal) because `OptimisticLockError` and
-`CrossScopeAccessError` override it — see [Discriminated union on
+Most concrete classes declare `code` as a literal type, but
+`QuillaFeError.code` is typed `string`, so checking `code` on a value typed
+`QuillaFeError` narrows nothing. Literal `code` narrows only over a union you
+declare yourself; otherwise use `instanceof` — see [Discriminated union on
 `code`](#discriminated-union-on-code).
+
+### Option types
+
+```ts
+type QuillaFeErrorOptions = {
+  message: string;
+  context?: Record<string, unknown>;
+  cause?: unknown;
+};
+
+type QuillaFeHttpErrorOptions = QuillaFeErrorOptions & {
+  httpStatus: number;
+  requestUrl?: string;
+};
+```
+
+Both are exported. `QuillaFeError` subclasses (`NetworkError`,
+`QuerySerializationError`) take `QuillaFeErrorOptions`; `QuillaFeHttpError`
+subclasses take `QuillaFeHttpErrorOptions`.
 
 ## Usage
 
@@ -149,34 +171,40 @@ function classify(e: unknown) {
 - `QuillaFeError.is()` uses `Symbol.for('quilla-fe-kit.error')` — works
   across realms (e.g. duplicate package copies under monorepo hoisting).
 - `instanceof` works within a single realm and is inheritance-aware.
-- To keep `instanceof` reliable, downstream packages should declare
-  `@quilla-fe-kit/errors` as a `peerDependency`.
+- `instanceof` needs a single copy of `@quilla-fe-kit/errors` in your app.
+  `@quilla-fe-kit/api-client` depends on it and re-exports every class, so
+  in an app that uses the client, import error classes from
+  `@quilla-fe-kit/api-client`. If you also install `@quilla-fe-kit/errors`
+  directly, keep it on a version compatible with the client's so the
+  package manager resolves one copy. Libraries you publish on top of this
+  package should declare it as a `peerDependency`.
 
 ## Discriminated union on `code`
 
-Because most subclasses declare `readonly code = '...'` without a widening
-annotation, `code` is the literal type, not `string`:
+`QuillaFeError.code` is typed `string`, so a `switch` on `e.code` for a value
+typed `QuillaFeError` narrows nothing. Most concrete classes declare
+`readonly code = '...'` as a literal, so `code` narrows only over a union you
+declare:
 
 ```ts
-function handle(e: QuillaFeError) {
+type AppError = ValidationError | NetworkError | BadRequestError;
+
+function handle(e: AppError) {
   switch (e.code) {
-    case 'CONFLICT':       return retry();
-    case 'VALIDATION':     return showValidation(e.context);
-    case 'NETWORK':        return showOfflineBanner();
-    default:               return rethrow();
+    case 'VALIDATION':  return showValidation(e.context); // e: ValidationError
+    case 'NETWORK':     return showOfflineBanner();       // e: NetworkError
+    case 'BAD_REQUEST': return showBadRequest(e.httpStatus);
   }
 }
 ```
 
-`ConflictError` and `NotFoundError` are the two exceptions: they type `code`
-as `string` explicitly, because `OptimisticLockError` and
-`CrossScopeAccessError` need to override it with a different literal, and
-TypeScript rejects overriding a base class field with an incompatible
-literal type. Runtime behavior is unaffected — `e.code === 'CONFLICT'`
-still works — but a `switch` on `code` won't get exhaustiveness checking
-for those two branches the way it does for the rest. Prefer `instanceof`
-over `code` when you need to distinguish `OptimisticLockError` /
-`CrossScopeAccessError` from their generic parent.
+Outside such a union, use `instanceof`.
+
+`ConflictError` and `NotFoundError` type `code` as plain `string` (their
+subclasses `OptimisticLockError` and `CrossScopeAccessError` override it), so
+they don't narrow by `code` even inside a union — `e.code === 'CONFLICT'`
+still works at runtime. Use `instanceof` to match them, and to distinguish
+`OptimisticLockError` / `CrossScopeAccessError` from their generic parent.
 
 ## Serialization
 

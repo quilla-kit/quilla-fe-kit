@@ -5,8 +5,9 @@ React Query adapter for [`@quilla-fe-kit/api-client`](../api-client):
 - **`createHooks(httpClient, config?)`** — binds all hooks to an `HttpClient` instance
   and optionally configures default response transformers for all queries and mutations.
   The client is an infrastructure detail: it never leaks into the component tree.
-- **`createQueryClient(config)`** — initialises the singleton `QueryClient`
-  and returns it. Throws on a second call. Typed-error retry policy, optional
+- **`createQueryClient(config?)`** — initialises the singleton `QueryClient`
+  and returns it. Throws on a second call, and when `window` is undefined
+  (CSR/SPA only). Typed-error retry policy, optional
   callback hooks for global UX (no toast lib coupling).
 - **`queryInvalidator`** — stable proxy object for the singleton invalidator.
   Import at module scope and call it anywhere — defers the singleton lookup to
@@ -116,7 +117,7 @@ import { userKeys } from '@/lib/api';
 // queryInvalidator is a stable proxy — safe to use at module scope.
 // The singleton lookup happens when the handler fires, not at import time.
 socket.on('user:updated', ({ id }) =>
-  queryInvalidator.invalidate([userKeys.detail(id), userKeys.lists()])
+  void queryInvalidator.invalidate([userKeys.detail(id), userKeys.lists()])
 );
 ```
 
@@ -125,6 +126,10 @@ socket.on('user:updated', ({ id }) =>
 Initialises the singleton `QueryClient` and returns it. **Throws if called
 more than once** — this is the singleton guard that prevents accidental
 double-instantiation and the cache conflicts that follow.
+
+**Throws when `window` is undefined** (`[quilla-fe-kit] createQueryClient is
+CSR/SPA only…`) — i.e. during SSR, or in tests running without a DOM
+environment such as jsdom. See [CSR / SPA only](#csr--spa-only).
 
 Call it once in your api layer and export the returned `QueryClient` for
 `QueryClientProvider`. Everything that needs to invalidate the cache imports
@@ -210,7 +215,7 @@ it('invalidates on success', async () => {
 
 | Error class                                                  | Retries           |
 | ------------------------------------------------------------ | ----------------- |
-| `BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Validation`, `BusinessRule`, `Conflict` | never (terminal client-side errors) |
+| `BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Validation`, `BusinessRule`, `Conflict`, `QuerySerializationError` | never (terminal client-side errors) |
 | `NetworkError`                                               | up to `networkMaxAttempts` (default 1) |
 | Other (incl. `InternalServerError`, unknown thrown values)   | up to `maxAttempts` (default 2)        |
 
@@ -381,7 +386,7 @@ import { userKeys } from '@/lib/api';
 
 // Safe at module scope — no singleton lookup until the handler fires
 socket.on('user:updated', () =>
-  queryInvalidator.invalidate([userKeys.lists(), userKeys.detail(id)])
+  void queryInvalidator.invalidate([userKeys.lists(), userKeys.detail(id)])
 );
 ```
 
@@ -402,7 +407,9 @@ function buildLogoutHandler() {
 }
 ```
 
-Both throw with a clear message if called before `createQueryClient`.
+Before `createQueryClient`, both fail with a clear message:
+`getQueryInvalidator()` and `queryInvalidator.clear()` throw synchronously,
+while `queryInvalidator.invalidate()` returns a rejected promise.
 
 ### `invalidate(keys)`
 
@@ -596,17 +603,27 @@ joining is application state that belongs in your own store. Use this hook for
 the paging parts and keep the assembly outside it.
 
 ```ts
-const { data, fetchNextPage, hasNextPage, isFetchingNextPage } =
-  hooks.useInfiniteQueryBase<PagedFrames, Frame[]>(frameKeys.lists(), '/frames', {
-    query: { limit: 20, filter: { status: 'active' } },
-    mapper: (raw) => raw.items,
-    initialPageParam: { page: 1 },
-    getNextPageParam: (page, allPages, pageParam) =>
-      allPages.length < page.pagination.totalPages ? { page: pageParam.page + 1 } : undefined,
-  });
+type PagedFrames = { items: Frame[]; pagination: { totalPages: number } };
 
-const frames = data?.pages.flatMap((p) => p.data) ?? [];
+const { data, fetchNextPage, hasNextPage, isFetchingNextPage } =
+  hooks.useInfiniteQueryBase<PagedFrames, PagedFrames, Error, { page: number }>(
+    frameKeys.lists(),
+    '/frames',
+    {
+      query: { limit: 20, filter: { status: 'active' } },
+      initialPageParam: { page: 1 },
+      getNextPageParam: (page, allPages, pageParam) =>
+        allPages.length < page.pagination.totalPages ? { page: pageParam.page + 1 } : undefined,
+    },
+  );
+
+const frames = data?.pages.flatMap((p) => p.data.items) ?? [];
 ```
+
+`getNextPageParam` / `getPreviousPageParam` receive each page's `TModel` — the
+value after transformer and `mapper` — not the raw envelope or the
+`{ data, version }` wrapper. Whatever the callback needs (pagination block,
+cursor) must survive the mapper.
 
 `data.pages` is an array of `QueryBaseResult<TModel>` — the same `{ data, version }`
 shape `useQueryBase` returns, one per page. Flattening is yours to do, because
@@ -631,7 +648,7 @@ createHttpClient({ baseUrl, querySerializer: { paginationKeys: { page: 'p', limi
 
 hooks.useInfiniteQueryBase<Paged>(keys.lists(), '/frames', {
   initialPageParam: { page: 1, limit: 20 },
-  getNextPageParam: (page, all, param) => ({ page: param.page + 1 }),
+  getNextPageParam: (page, all, param) => ({ page: (param.page ?? 1) + 1 }),
 });
 // → /frames?p=1&size=20, then /frames?p=2&size=20
 ```
@@ -644,7 +661,7 @@ hooks.useInfiniteQueryBase<CursorPage>(keys.lists(), '/graph', {
   initialPageParam: { cursor: null as string | null },
   getNextPageParam: (page) => (page.next ? { cursor: page.next } : undefined),
 });
-// → /graph?cursor=, then /graph?cursor=c2
+// → /graph (null params are omitted), then /graph?cursor=c2
 
 hooks.useInfiniteQueryBase<Paged>(keys.lists(), '/frames', {
   initialPageParam: { pagina: 1 },
@@ -694,7 +711,8 @@ queryInvalidator.invalidate([[...userKeys.lists(), INFINITE_KEY_SEGMENT]]);
 
 You supply `initialPageParam`, `getNextPageParam` (optionally
 `getPreviousPageParam`), a transformer that folds your envelope — pagination block
-included — into `TRaw`, and the flattening of `data.pages`.
+included — into `TRaw`, a `TModel` (after any `mapper`) that still carries what the
+page-param callbacks read, and the flattening of `data.pages`.
 
 The kit owns debounce and search gating, `enabled` inference, the precedence rules
 above, query-key construction, mapping the page param onto flat wire fields, the
@@ -939,7 +957,7 @@ usePatchMutationBase<Seat, SeatBody>('/orgs/:id/seats');
 const remove = useDeleteMutationBase<void, string>('/users');
 remove.mutate('user-1');
 
-// ...or { id, body? } for OCC
+// ...or { id } for OCC
 const safeRemove = useDeleteMutationBase<void, { id: number }>('/users', {
   occ: { versionKey: ({ id }) => userKeys.detail(id) },
 });
@@ -1102,7 +1120,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ### Factories and accessors
 - `createHooks(httpClient, config?)` → `Hooks`
-- `createQueryClient(config)` → `QueryClient` _(throws on second call — singleton guard)_
+- `createQueryClient(config?)` → `QueryClient` _(throws on second call — singleton guard — and when `window` is undefined)_
 - `queryInvalidator` — stable proxy; safe to import at module scope
 - `getQueryInvalidator()` → `QueryInvalidator` _(throws if called before `createQueryClient`)_
 - `resetQueryClient()` — clears both caches and the singleton guard; use in `beforeEach` in tests and in HMR `dispose` handlers
@@ -1118,13 +1136,15 @@ const debounced = useDebouncedValue(searchInput, 500);
 
 ### Helpers
 - `buildOCCHeaders(resolver, vars)` — for custom mutations; reads from the singleton cache
-- `resolveMutationUrl(basePath, vars)` — the placeholder/append URL ladder, for custom mutations
+- `resolveMutationUrl(basePath, vars)` — the placeholder/append URL ladder, for custom mutations. A primitive `vars` is treated as the id; an object-valued placeholder throws `[url] … resolved to a non-scalar value`; trailing slashes on `basePath` are trimmed before the id is appended
+- `applyMutationTransformer<TData>(data, transformer)` — applies a `MutationTransformer` (or passes `data` through when it is `undefined`), for custom mutations
 
 ### Types
 - `QueryBaseResult<T>`, `QueryBaseInput`, `QueryBaseTuning`, `UseQueryBaseOptions<...>`
 - `QueryBasePageParam`, `QueryBasePageParamFn<...>`, `UseInfiniteQueryBaseOptions<...>`
 - `QueryInvalidator`
-- `CreateQueryClientConfig`, `QueryDefaults`, plus the four event-handler aliases
+- `CreateQueryClientConfig`, `QueryDefaults`
+- `QueryEventHandler`, `QuerySuccessHandler`, `MutationEventHandler`, `MutationSuccessHandler` — the `onQueryError` / `onQuerySuccess` / `onMutationError` / `onMutationSuccess` callback types
 - `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
 - `QueryKeyFactory`, `INFINITE_KEY_SEGMENT`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
@@ -1145,7 +1165,12 @@ runs React Query on the server, do not use this package's singleton — create
 `QueryClient` instances directly with `new QueryClient()` per request as
 React Query's own SSR guide recommends.
 
-The rest of this package (auth, token storage, `HttpClient`) is also built
+`createQueryClient` enforces this: it throws
+`[quilla-fe-kit] createQueryClient is CSR/SPA only…` when `window` is
+undefined. That also applies to tests — run them in a DOM environment
+(e.g. Vitest's `environment: 'jsdom'`).
+
+The rest of the `@quilla-fe-kit` packages (auth, token storage, `HttpClient`) are also built
 around browser primitives (localStorage, cookies, token refresh), so the
 CSR-only constraint is shared across the whole `@quilla-fe-kit` surface.
 
