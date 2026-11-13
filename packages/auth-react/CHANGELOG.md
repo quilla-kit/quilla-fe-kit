@@ -1,5 +1,11 @@
 # @quilla-fe-kit/auth-react
 
+## 0.2.5
+
+### Patch Changes
+
+- 6aea6ae: README: the login example now wraps credentials as `{ body }` to match the `usePostMutationBase` variables in `@quilla-fe-kit/api-client-react-query` 0.10.0.
+
 ## 0.2.4
 
 ### Patch Changes
