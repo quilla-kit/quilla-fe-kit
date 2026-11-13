@@ -185,7 +185,7 @@ const LoginPage = () => {
   });
 
   const onSubmit = async (creds: LoginBody) => {
-    const tokens = await loginMutation.mutateAsync(creds);
+    const tokens = await loginMutation.mutateAsync({ body: creds });
     await signIn(tokens);
     navigate('/dashboard');
   };

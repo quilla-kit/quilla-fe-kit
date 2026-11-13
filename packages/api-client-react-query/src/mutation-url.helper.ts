@@ -27,19 +27,26 @@ const encodePathValue = (name: string, value: unknown, basePath: string): string
   return encodeURIComponent(String(value));
 };
 
-export const resolveMutationUrl = (basePath: string, vars: unknown): string => {
-  const source = substitutionSource(vars);
+const substitutePlaceholders = (basePath: string, vars: unknown): string | undefined => {
   const segments = basePath.split('/');
+  if (!segments.some((segment) => placeholderName(segment) !== undefined)) return undefined;
+  const source = substitutionSource(vars);
+  return segments
+    .map((segment) => {
+      const name = placeholderName(segment);
+      return name === undefined ? segment : encodePathValue(name, source[name], basePath);
+    })
+    .join('/');
+};
 
-  if (segments.some((segment) => placeholderName(segment) !== undefined)) {
-    return segments
-      .map((segment) => {
-        const name = placeholderName(segment);
-        return name === undefined ? segment : encodePathValue(name, source[name], basePath);
-      })
-      .join('/');
-  }
+export const resolvePathParams = (basePath: string, vars: unknown): string =>
+  substitutePlaceholders(basePath, vars) ?? basePath;
 
+export const resolveMutationUrl = (basePath: string, vars: unknown): string => {
+  const substituted = substitutePlaceholders(basePath, vars);
+  if (substituted !== undefined) return substituted;
+
+  const source = substitutionSource(vars);
   if (source.id === undefined || source.id === null || source.id === '') {
     throw urlError("No path placeholders and no 'id' on the mutation variables", basePath);
   }

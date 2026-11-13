@@ -1,17 +1,18 @@
 import type { HttpHeaders } from '@quilla-fe-kit/api-client';
-import { type QueryKey, type UseMutationOptions } from '@tanstack/react-query';
+import type { QueryKey, UseMutationOptions } from '@tanstack/react-query';
 import { getQueryInvalidator } from './query-client.factory.js';
 import type { MutationTransformer } from './transformer.type.js';
 
-export type IdAndBody<TBody> = {
-  readonly id: string | number;
+export type PostMutationVars<TBody> = {
   readonly body?: TBody;
   readonly params?: Record<string, string | number>;
 };
 
-export type InvalidateKeys<TVars, TData> =
-  | QueryKey[]
-  | ((vars: TVars, data: TData) => QueryKey[]);
+export type IdAndBody<TBody> = PostMutationVars<TBody> & {
+  readonly id: string | number;
+};
+
+export type InvalidateKeys<TVars, TData> = QueryKey[] | ((vars: TVars, data: TData) => QueryKey[]);
 
 export const resolveInvalidateKeys = <TVars, TData>(
   invalidate: InvalidateKeys<TVars, TData>,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveMutationUrl } from '../src/mutation-url.helper.js';
+import { resolveMutationUrl, resolvePathParams } from '../src/mutation-url.helper.js';
 
 describe('resolveMutationUrl', () => {
   it.each([
@@ -61,5 +61,25 @@ describe('resolveMutationUrl', () => {
     ['an empty-string id', '/users', { id: '' }, /no 'id'/],
   ])('throws on %s', (_name, basePath, vars, expected) => {
     expect(() => resolveMutationUrl(basePath, vars)).toThrow(expected);
+  });
+});
+
+describe('resolvePathParams', () => {
+  it.each([
+    ['returns the base path verbatim when there are no placeholders', '/users', {}, '/users'],
+    ['ignores an id when there are no placeholders', '/users', { id: 5 }, '/users'],
+    ['keeps a trailing slash untouched', '/users/', {}, '/users/'],
+    [
+      'substitutes placeholders from params',
+      '/users/:id/suspend',
+      { params: { id: 'a/b' } },
+      '/users/a%2Fb/suspend',
+    ],
+  ])('%s', (_name, basePath, vars, expected) => {
+    expect(resolvePathParams(basePath, vars)).toBe(expected);
+  });
+
+  it('throws on an unresolved placeholder', () => {
+    expect(() => resolvePathParams('/users/:id/suspend', {})).toThrow(/':id'/);
   });
 });
