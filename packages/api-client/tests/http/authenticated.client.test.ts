@@ -1,13 +1,10 @@
+import { memoryTokenStorage } from '@quilla-fe-kit/auth';
+import { ConflictError, UnauthorizedError } from '@quilla-fe-kit/errors';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ConflictError,
-  UnauthorizedError,
-} from '@quilla-fe-kit/errors';
 import { AuthenticatedHttpClient } from '../../src/http/authenticated.client.js';
 import type { HttpClient } from '../../src/http/http-client.interface.js';
 import type { HttpRequest, HttpResponse } from '../../src/http/http-types.type.js';
 import type { TokenRefresher } from '../../src/http/single-flight-token.refresher.js';
-import { memoryTokenStorage } from '@quilla-fe-kit/auth';
 
 const okResponse = <T>(data: T = {} as T): HttpResponse<T> => ({
   status: 200,

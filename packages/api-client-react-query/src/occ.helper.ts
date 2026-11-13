@@ -1,12 +1,12 @@
 import {
-  formatOCCHeaderValue,
   type HttpHeaders,
-  OCC_HEADER,
   type OCCToken,
+  OCC_HEADER,
+  formatOCCHeaderValue,
 } from '@quilla-fe-kit/api-client';
 import type { QueryKey } from '@tanstack/react-query';
-import { getQueryClient } from './query-client.factory.js';
 import type { QueryBaseResult } from './query-base-result.type.js';
+import { getQueryClient } from './query-client.factory.js';
 
 export type VersionResolver<TVars> = {
   readonly versionKey: (vars: TVars) => QueryKey;

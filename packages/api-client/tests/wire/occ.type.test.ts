@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ETAG_HEADER,
-  formatOCCHeaderValue,
   OCC_HEADER,
+  formatOCCHeaderValue,
   parseETagHeaderValue,
 } from '../../src/wire/occ.type.js';
 

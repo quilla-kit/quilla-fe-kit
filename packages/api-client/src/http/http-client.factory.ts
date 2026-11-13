@@ -1,4 +1,4 @@
-import { memoryTokenStorage, type TokenStorage } from '@quilla-fe-kit/auth';
+import { type TokenStorage, memoryTokenStorage } from '@quilla-fe-kit/auth';
 import { AuthenticatedHttpClient } from './authenticated.client.js';
 import { EnvelopeHttpErrorParser } from './envelope.parser.js';
 import { FetchHttpClient } from './fetch.client.js';
