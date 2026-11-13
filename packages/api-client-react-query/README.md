@@ -809,6 +809,7 @@ type AuthTokensDto = { accessToken: string; refreshToken: string };
 const login = usePostMutationBase<AuthTokensDto, LoginBody>('/auth/login', {
   disabledAuth: true,
 });
+login.mutate({ body: { email, password } });
 // login.data is AuthTokensDto directly — no .payload access
 ```
 
@@ -825,9 +826,10 @@ const { data } = useQueryBase<StatsDto>(['stats'], '/stats', {
 });
 
 // Similarly for mutations
-const archive = usePostMutationBase<void, { id: string }>('/archive', {
+const archive = usePostMutationBase<void>('/items/:id/archive', {
   transformer: (raw) => raw, // endpoint returns 200 with no body wrapper
 });
+archive.mutate({ params: { id: itemId } });
 ```
 
 ### Without a transformer
@@ -862,8 +864,12 @@ import type {
 
 ## Mutation hooks
 
-Four method-specific hooks. POST is for creation (no version yet);
-PUT/PATCH/DELETE accept an optional `occ` resolver for `If-Match` headers.
+Four method-specific hooks. PUT/PATCH/DELETE accept an optional `occ`
+resolver for `If-Match` headers; POST does not.
+
+Every hook keeps path values apart from the request body. PUT/PATCH take
+`{ id, body?, params? }`, POST takes `{ body?, params? }`, and DELETE takes
+the id (or an object of path values). Only `body` is ever sent.
 
 ### How the request URL is built
 
@@ -911,25 +917,60 @@ A placeholder that resolves to `undefined`, `null` or `''` throws a `[url]`
 error naming it, and so does an appended id that is missing. The throw happens
 inside `mutationFn`, so it surfaces as a rejected mutation, not a render error.
 
-POST takes a fixed `url` rather than a `basePath` (there is no id yet), but it
-accepts `resolveUrl` for routes that interpolate something from the body.
+POST resolves its URL the same way, with two differences: placeholders are
+filled from `params` (its variables have no `id`), and it **never appends** —
+a `basePath` without placeholders is used verbatim, because a POST targets a
+collection (`/users`) or an action (`/users/:id/suspend`), never `/users/42`.
 
 ### POST
 
+Variables are `PostMutationVars<TBody>` = `{ body?: TBody; params? }`. A
+missing `body` is sent as `{}`.
+
 ```ts
 const create = usePostMutationBase<CreatedUser, CreateUserBody>('/users');
-create.mutate({ name: 'Ada' });
+create.mutate({ body: { name: 'Ada' } });
+// → POST /users  { name: 'Ada' }
 
-// Nested creation: derive the path from the variables
-const addMember = usePostMutationBase<Member, { orgId: string; email: string }>('/members', {
-  resolveUrl: ({ orgId }) => `/orgs/${orgId}/members`,
+// Nested creation: the path value goes in params, not the body
+const addMember = usePostMutationBase<Member, { email: string }>('/orgs/:orgId/members');
+addMember.mutate({ params: { orgId: 'acme' }, body: { email } });
+// → POST /orgs/acme/members  { email }
+
+// Action on an existing resource: the id is supplied per call
+const suspend = usePostMutationBase<void, { reason: string }>('/users/:id/suspend', {
+  invalidate: [userKeys.all()],
 });
+suspend.mutate({ params: { id: row.id }, body: { reason } });
+// → POST /users/42/suspend  { reason }
 
 // Login / refresh: skip the auth decorator
 const login = usePostMutationBase<TokenPair, LoginBody>('/auth/login', {
   disabledAuth: true,
 });
 ```
+
+Anything other than `{ body?, params? }` — a bare body, `FormData`, extra
+top-level keys — rejects the mutation with a `[post]` error before any request
+is sent. Wrap uploads too: `mutate({ body: formData })`.
+
+### Migrating POST mutations (0.10.0)
+
+Up to 0.9.x the POST variables *were* the body, so path values leaked into it
+and an action URL had to be fixed when the hook was created. From 0.10.0:
+
+| Before | After |
+| --- | --- |
+| `mutate(body)` | `mutate({ body })` |
+| ``usePostMutationBase('/members', { resolveUrl: ({ orgId }) => `/orgs/${orgId}/members` })`` + `mutate({ orgId, email })` | `usePostMutationBase('/orgs/:orgId/members')` + `mutate({ params: { orgId }, body: { email } })` |
+| URL built at hook creation, e.g. `` `/users/${selected?.id ?? ''}/suspend` `` | `usePostMutationBase('/users/:id/suspend')` + `mutate({ params: { id }, body })` |
+| `invalidate` / `onSuccess` / `onMutate` reading `vars.x` | read `vars.body?.x` or `vars.params?.x` |
+| `usePostMutationBase<TData, TVars>` | `usePostMutationBase<TData, TBody>` — the second generic is now the body type |
+
+Most old calls fail to compile. Two cases the compiler can't flag: a body that
+itself has a `body` or `params` field, and calls whose body type is `unknown`
+(including plain JavaScript). Search for those by hand; at runtime the
+`[post]` error catches whatever is left.
 
 ### PUT (replace)
 
@@ -1165,7 +1206,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 ### Hooks (returned by `createHooks`, destructure and import by name)
 - `useQueryBase<TRaw, TModel?, TError?>(baseKey, url, options?)`
 - `useInfiniteQueryBase<TRaw, TModel?, TError?, TPageParam?>(baseKey, url, options)`
-- `usePostMutationBase<TData, TVars?, TError?>(url, options?)`
+- `usePostMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `usePutMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `usePatchMutationBase<TData, TBody?, TError?>(basePath, options?)`
 - `useDeleteMutationBase<TData?, TVars?, TError?>(basePath, options?)`
@@ -1173,6 +1214,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 ### Helpers
 - `buildOCCHeaders(resolver, vars)` — for custom mutations; reads from the singleton cache
 - `resolveMutationUrl(basePath, vars)` — the placeholder/append URL ladder, for custom mutations. A primitive `vars` is treated as the id; an object-valued placeholder throws `[url] … resolved to a non-scalar value`; trailing slashes on `basePath` are trimmed before the id is appended
+- `resolvePathParams(basePath, vars)` — placeholders only, never appends: returns `basePath` verbatim when it has none (what POST uses)
 - `applyMutationTransformer<TData>(data, transformer)` — applies a `MutationTransformer` (or passes `data` through when it is `undefined`), for custom mutations
 
 ### Types
@@ -1181,7 +1223,7 @@ const debounced = useDebouncedValue(searchInput, 500);
 - `QueryInvalidator`
 - `CreateQueryClientConfig`, `QueryDefaults`
 - `QueryEventHandler`, `QuerySuccessHandler`, `MutationEventHandler`, `MutationSuccessHandler` — the `onQueryError` / `onQuerySuccess` / `onMutationError` / `onMutationSuccess` callback types
-- `IdAndBody<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
+- `IdAndBody<TBody>`, `PostMutationVars<TBody>`, `VersionResolver<TVars>`, `InvalidateKeys<TVars, TData>`, `UrlResolver<TVars>`
 - `QueryKeyFactory`, `INFINITE_KEY_SEGMENT`
 - Per-hook option types (`UsePostMutationOptions`, etc.)
 - `HooksConfig`, `QueryTransformer`, `MutationTransformer`, `QueryTransformResult`

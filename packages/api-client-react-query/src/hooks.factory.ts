@@ -34,10 +34,10 @@ export function createHooks(client: HttpClient, config: HooksConfig = {}) {
       options: UseInfiniteQueryBaseOptions<TRaw, TModel, TError, TPageParam>,
     ) => useInfiniteQueryBase(client, baseKey, url, options, config.queryTransformer),
 
-    usePostMutationBase: <TData, TVars = unknown, TError = Error>(
-      url: string,
-      options?: UsePostMutationOptions<TData, TVars, TError>,
-    ) => usePostMutationBase(client, url, options, config.mutationTransformer),
+    usePostMutationBase: <TData, TBody = unknown, TError = Error>(
+      basePath: string,
+      options?: UsePostMutationOptions<TData, TBody, TError>,
+    ) => usePostMutationBase(client, basePath, options, config.mutationTransformer),
 
     usePutMutationBase: <TData, TBody = unknown, TError = Error>(
       basePath: string,
